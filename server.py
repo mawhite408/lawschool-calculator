@@ -730,10 +730,13 @@ def viz_wait_times(school_name: str):
 
 @app.get("/api/cycle_pace")
 def cycle_pace(school_name: str = "ALL"):
-    """Compare current cycle's decision pace to the last 3 cycles.
+    """Compare current cycle's raw cumulative decision count to recent cycles.
 
-    Returns normalised cumulative decision curves for each year and a
-    headline pct_vs_past3: negative = slower, positive = faster.
+    Returns raw count curves (not normalised fractions) so year-over-year
+    LSD.law growth is transparent.  Headline compares current cycle vs the
+    most recent complete cycle at the same day of the cycle, which is a more
+    apples-to-apples comparison than a 3-year average dominated by earlier,
+    smaller cohorts.
     """
     data = _pace_cache.get(school_name)
     if not data:
@@ -746,47 +749,50 @@ def cycle_pace(school_name: str = "ALL"):
         400,
     ))
 
-    # Last 3 complete cycles that have data
     past_years = sorted([y for y in data if y < _CURRENT_MAT_YEAR])[-3:]
-    past_totals = [data[y]["total"] for y in past_years]
-    avg_past_total = float(np.mean(past_totals)) if past_totals else None
+    prior_year = past_years[-1] if past_years else None  # most recent complete cycle
 
-    # Build normalised fraction curves
-    # Current year: denominator = avg_past_total (final total unknown)
-    # Past years:   denominator = their own total
+    # Return raw count curves for every available year
     cycles: dict = {}
     for year, year_data in data.items():
-        denom = (avg_past_total if year == _CURRENT_MAT_YEAR and avg_past_total
-                 else year_data["total"])
-        if not denom:
-            continue
         cycles[str(year)] = {
-            "curve": [
-                {"day": pt["day"], "frac": round(pt["count"] / denom, 4)}
-                for pt in year_data["curve"]
-            ],
+            "curve": [{"day": pt["day"], "count": pt["count"]} for pt in year_data["curve"]],
             "raw_total": year_data["total"],
         }
 
-    def _frac_at(year_str: str, day: int) -> float | None:
-        if year_str not in cycles:
+    def _count_at(year_key: str, day: int) -> int | None:
+        if year_key not in cycles:
             return None
-        pts = [p for p in cycles[year_str]["curve"] if p["day"] <= day]
-        return pts[-1]["frac"] if pts else 0.0
+        pts = [p for p in cycles[year_key]["curve"] if p["day"] <= day]
+        return pts[-1]["count"] if pts else 0
 
-    current_frac = _frac_at(str(_CURRENT_MAT_YEAR), today_day)
-    past_fracs = [f for y in past_years if (f := _frac_at(str(y), today_day)) is not None]
-    avg_past_frac = float(np.mean(past_fracs)) if past_fracs else None
+    current_count = _count_at(str(_CURRENT_MAT_YEAR), today_day)
+    prior_count   = _count_at(str(prior_year), today_day) if prior_year else None
 
-    pct_vs_past3: float | None = None
-    if current_frac is not None and avg_past_frac and avg_past_frac > 0:
-        pct_vs_past3 = round((current_frac / avg_past_frac - 1) * 100, 1)
+    # Headline: % difference vs most recent prior cycle at the same day
+    pct_vs_prior_year: float | None = None
+    if current_count is not None and prior_count and prior_count > 0:
+        pct_vs_prior_year = round((current_count / prior_count - 1) * 100, 1)
+
+    # Also compute vs 3-year avg for reference (clearly labelled)
+    past_counts = [c for y in past_years if (c := _count_at(str(y), today_day)) is not None]
+    avg_past_count = round(float(np.mean(past_counts))) if past_counts else None
+    pct_vs_3yr_avg: float | None = None
+    if current_count is not None and avg_past_count and avg_past_count > 0:
+        pct_vs_3yr_avg = round((current_count / avg_past_count - 1) * 100, 1)
 
     return {
         "today_day": today_day,
         "today_date": today.isoformat(),
         "cycles": cycles,
-        "pct_vs_past3": pct_vs_past3,
+        # Primary headline: vs most recent complete cycle
+        "pct_vs_prior_year": pct_vs_prior_year,
+        "prior_year": prior_year,
+        "current_count": current_count,
+        "prior_count": prior_count,
+        # Secondary: vs 3-year average (affected by LSD.law growth)
+        "pct_vs_3yr_avg": pct_vs_3yr_avg,
+        "avg_past_count": avg_past_count,
         "current_mat_year": _CURRENT_MAT_YEAR,
         "past_mat_years": past_years,
     }

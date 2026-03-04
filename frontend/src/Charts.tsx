@@ -558,13 +558,18 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
 
 // ─── #6: Cycle Pace ("Is This Cycle Slow?") ───────────────
 
-interface PaceCurvePoint { day: number; frac: number }
+interface PaceCurvePoint { day: number; count: number }
 interface PaceCycleData { curve: PaceCurvePoint[]; raw_total: number }
 interface CyclePaceResponse {
   today_day: number;
   today_date: string;
   cycles: Record<string, PaceCycleData>;
-  pct_vs_past3: number | null;
+  pct_vs_prior_year: number | null;
+  pct_vs_3yr_avg: number | null;
+  prior_year: number | null;
+  current_count: number | null;
+  prior_count: number | null;
+  avg_past_count: number | null;
   current_mat_year: number;
   past_mat_years: number[];
   error?: string;
@@ -607,15 +612,15 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
       const row: Record<string, number> = { day: pt.day };
       for (const yr of yearKeys) {
         const match = data.cycles[yr].curve.find((p) => p.day === pt.day);
-        row[yr] = match ? +(match.frac * 100).toFixed(2) : 0;
+        row[yr] = match ? match.count : 0;
       }
       return row;
     });
   }, [data]);
 
-  const pct = data?.pct_vs_past3;
-  const isSlower = pct != null && pct < -3;
-  const isFaster = pct != null && pct > 3;
+  const pct = data?.pct_vs_prior_year;
+  const isSlower = pct != null && pct < -5;
+  const isFaster = pct != null && pct > 5;
 
   const headlineBg = isSlower ? "bg-rose-100 border-rose-600"
     : isFaster ? "bg-emerald-100 border-emerald-600"
@@ -623,11 +628,12 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
   const headlineText = isSlower ? "text-rose-800"
     : isFaster ? "text-emerald-800"
     : "text-amber-800";
+  const priorYr = data?.prior_year ?? (data?.current_mat_year ?? 2026) - 1;
   const headlineLabel = loading ? "LOADING..."
     : pct == null ? "INSUFFICIENT DATA"
-    : isSlower ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% SLOWER THAN THE LAST 3 CYCLES`
-    : isFaster ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% FASTER THAN THE LAST 3 CYCLES`
-    : "THIS CYCLE IS ON PACE WITH THE LAST 3 CYCLES";
+    : isSlower ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% SLOWER THAN ${priorYr}`
+    : isFaster ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% FASTER THAN ${priorYr}`
+    : `THIS CYCLE IS ON PACE WITH ${priorYr}`;
 
   const currentYear = data?.current_mat_year ?? 2026;
   const pastYears = (data?.past_mat_years ?? []).sort();
@@ -677,9 +683,13 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
         <p className={`text-2xl font-black tracking-tight ${headlineText}`}>{headlineLabel}</p>
         {!loading && pct != null && (
           <p className="mt-1.5 text-xs font-medium text-neutral-700">
-            As of {data?.today_date} · cumulative decisions vs avg of {pastYears.join(", ")} cycles
-            {data?.cycles?.[String(currentYear)] && (
-              <> · {data.cycles[String(currentYear)].raw_total.toLocaleString()} decisions recorded this cycle</>
+            As of {data?.today_date} ·{" "}
+            {data?.current_count?.toLocaleString()} decisions in {currentYear} cycle vs{" "}
+            {data?.prior_count?.toLocaleString()} at same point in {priorYr}
+            {data?.pct_vs_3yr_avg != null && (
+              <span className="ml-2 text-neutral-500">
+                (vs 3-yr avg: {data.pct_vs_3yr_avg > 0 ? "+" : ""}{data.pct_vs_3yr_avg.toFixed(1)}% — inflated by LSD.law growth)
+              </span>
             )}
           </p>
         )}
@@ -690,7 +700,7 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
         <div className="nb-card">
           <h3 className="mb-1 text-sm font-black">Cumulative Decisions by Day of Cycle</h3>
           <p className="mb-4 text-xs font-medium text-neutral-600">
-            % of a typical cycle's total decisions recorded by date. Dashed vertical = today.
+            Raw cumulative decision count per cycle. Higher lines in recent years reflect LSD.law platform growth, not necessarily a faster cycle. Dashed vertical = today.
           </p>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -704,10 +714,10 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
                   stroke="#cbd5e1"
                 />
                 <YAxis
-                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)}
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   stroke="#cbd5e1"
-                  width={38}
+                  width={42}
                   domain={[0, "auto"]}
                 />
                 <Tooltip
@@ -722,7 +732,7 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
                           .map((p) => (
                             <div key={String(p.dataKey)} style={{ color: p.color }} className="font-bold">
                               {p.dataKey === String(currentYear) ? `${p.dataKey} ★` : p.dataKey}:{" "}
-                              {(p.value as number).toFixed(1)}%
+                              {(p.value as number).toLocaleString()} decisions
                             </div>
                           ))}
                       </div>
