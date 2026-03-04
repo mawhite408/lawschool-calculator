@@ -390,12 +390,45 @@ def get_school_waves(school_name: str):
     return {"school_name": school_name, "waves": waves}
 
 
+BLEND_THRESHOLD = 0.05  # fully trust model once 5% of cycle decisions are in
+
+
+def _anchored_proba(req) -> np.ndarray:
+    """Return base-rate-anchored probability vector for a prediction request.
+
+    When very few cycle decisions have been made (pre-wave), the raw model is
+    poorly calibrated and can produce wildly optimistic/pessimistic odds.  We
+    blend the raw prediction toward a neutral 'base-rate' prediction computed
+    at the sent_date (no temporal signal) weighted by the fraction of the
+    cycle's decisions that have been made so far.
+    """
+    proba = model.predict(build_features(req))[0]
+
+    # Compute cum_frac for current date
+    school_cum_curve = cum_curves.get(req.school_name, {})
+    cycle_start = datetime(req.matriculating_year - 1, 9, 1)
+    if req.current_date:
+        current_day = (datetime.fromisoformat(req.current_date) - cycle_start).days
+    else:
+        current_day = 0
+    cum_frac = interpolate_cum_curve(school_cum_curve, current_day)
+
+    weight = min(cum_frac / BLEND_THRESHOLD, 1.0)
+    if weight >= 1.0:
+        return proba  # no blending needed
+
+    # Base-rate: model at sent_date with no temporal/wave signal
+    base_req = req.model_copy()
+    base_req.current_date = req.sent_date if req.sent_date else cycle_start.strftime("%Y-%m-%d")
+    p_base = model.predict(build_features(base_req))[0]
+    return (1.0 - weight) * p_base + weight * proba
+
+
 @app.post("/api/predict")
 def predict(req: PredictionRequest):
     """Return admission probabilities conditional on current date."""
     try:
-        X = build_features(req)
-        proba = model.predict(X)[0]
+        proba = _anchored_proba(req)
         result = {
             LABEL_NAMES[i]: round(float(proba[i]) * 100, 1)
             for i in range(len(LABEL_NAMES))
@@ -476,6 +509,13 @@ def predict_timeline(req: PredictionRequest):
         # Preload cumulative curve for confidence indicator
         school_cum_curve = cum_curves.get(req.school_name, {})
 
+        # Base-rate anchor: run model at sent_date with no temporal/wave signal.
+        # Pre-wave timeline predictions are blended toward this so the chart
+        # can't spike to unrealistic odds before any decisions are made.
+        base_req = req.model_copy()
+        base_req.current_date = req.sent_date if req.sent_date else cycle_start.strftime("%Y-%m-%d")
+        p_base = model.predict(build_features(base_req))[0]
+
         # Build feature vectors for all days at once
         for day in days_to_eval:
             # Create a modified request with this day as current_date
@@ -489,12 +529,17 @@ def predict_timeline(req: PredictionRequest):
             # Cumulative decision fraction = confidence proxy
             cum_frac = interpolate_cum_curve(school_cum_curve, int(day))
 
+            # Blend toward base rate when data is sparse (pre-wave region).
+            # weight=0 → pure base rate; weight=1 → pure model prediction.
+            weight = min(cum_frac / BLEND_THRESHOLD, 1.0)
+            p_blended = (1.0 - weight) * p_base + weight * proba
+
             timeline.append({
                 "day": int(day),
                 "date": day_date.strftime("%Y-%m-%d"),
-                "accepted": round(float(proba[0]) * 100, 1),
-                "waitlisted": round(float(proba[1]) * 100, 1),
-                "rejected": round(float(proba[2]) * 100, 1),
+                "accepted": round(float(p_blended[0]) * 100, 1),
+                "waitlisted": round(float(p_blended[1]) * 100, 1),
+                "rejected": round(float(p_blended[2]) * 100, 1),
                 "confidence": round(float(cum_frac), 3),
             })
 
