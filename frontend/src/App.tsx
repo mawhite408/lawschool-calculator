@@ -15,7 +15,10 @@ import {
   WaveHeatmap,
   ApplicantsLikeYou,
   WaitTimeDistribution,
+  CyclePace,
 } from "./Charts";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 interface WaveEntry {
   start: number;
@@ -49,7 +52,7 @@ interface PredictionResult {
 }
 
 const INPUT_CLS =
-  "w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  "nb-input";
 
 function dayToApproxDate(day: number, matYear: number): string {
   const base = new Date(matYear - 1, 8, 1); // Sept 1
@@ -68,13 +71,13 @@ function ProbabilityBar({
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-sm font-medium">
-        <span className="text-slate-300">{label}</span>
+      <div className="flex justify-between text-sm font-bold">
+        <span className="text-black">{label}</span>
         <span className={color}>{value.toFixed(1)}%</span>
       </div>
-      <div className="h-3 w-full rounded-full bg-slate-700/50 overflow-hidden">
+      <div className="h-3 w-full border-2 border-black bg-white overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ease-out ${color.replace("text-", "bg-")}`}
+          className={`h-full transition-all duration-700 ease-out ${color.replace("text-", "bg-")}`}
           style={{ width: `${Math.max(value, 0.5)}%` }}
         />
       </div>
@@ -125,16 +128,16 @@ function SchoolCombobox({
         onChange={(e) => setSearch(e.target.value)}
       />
       {open && (
-        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-slate-600 bg-slate-800 py-1 shadow-xl">
+        <ul className="absolute z-50 mt-1 max-h-60 w-full overflow-auto border-2 border-black bg-white py-1 shadow-[6px_6px_0_0_#000]">
           {filtered.length === 0 ? (
-            <li className="px-3 py-2 text-sm text-slate-400">
+            <li className="px-3 py-2 text-sm font-medium text-neutral-600">
               No schools found
             </li>
           ) : (
             filtered.map((s) => (
               <li
                 key={s}
-                className={`cursor-pointer px-3 py-1.5 text-sm hover:bg-indigo-600/30 ${s === value ? "bg-indigo-600/20 text-indigo-300" : "text-slate-200"}`}
+                className={`cursor-pointer px-3 py-1.5 text-sm font-medium hover:bg-indigo-600 hover:text-white ${s === value ? "bg-indigo-600 text-white" : "text-black"}`}
                 onClick={() => {
                   onChange(s);
                   setOpen(false);
@@ -234,19 +237,19 @@ function AdmissionTimeline({
     const confPct = Math.round(p.confidence * 100);
     const isLow = p.confidence < CONF_THRESHOLD;
     return (
-      <div className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-xs shadow-xl">
-        <div className="mb-1 flex items-center gap-2 font-medium text-slate-300">
+      <div className="border-2 border-black bg-white px-3 py-2 text-xs shadow-[4px_4px_0_0_#000]">
+        <div className="mb-1 flex items-center gap-2 font-bold text-black">
           {formatDayLabel(p.day, matYear)}
           {isLow && (
-            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+            <span className="border border-black bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold text-black">
               Low Data
             </span>
           )}
         </div>
-        <div className="text-emerald-400">Accepted: {p.accepted}%</div>
-        <div className="text-amber-400">Waitlisted: {p.waitlisted}%</div>
-        <div className="text-rose-400">Rejected: {p.rejected}%</div>
-        <div className="mt-1 text-slate-500">{confPct}% of decisions made by this point</div>
+        <div className="text-emerald-700">Accepted: {p.accepted}%</div>
+        <div className="text-amber-700">Waitlisted: {p.waitlisted}%</div>
+        <div className="text-rose-700">Rejected: {p.rejected}%</div>
+        <div className="mt-1 font-medium text-neutral-700">{confPct}% of decisions made by this point</div>
       </div>
     );
   };
@@ -257,11 +260,11 @@ function AdmissionTimeline({
     .map((p) => p.day);
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-200">
+    <div className="nb-card">
+      <h2 className="mb-1 text-lg font-black">
         Odds Across the Cycle
       </h2>
-      <p className="mb-4 text-xs text-slate-500">
+      <p className="mb-4 text-xs font-medium text-neutral-700">
         Probability of each outcome assuming no decision at each point
       </p>
       <div className="h-72">
@@ -333,14 +336,14 @@ function AdmissionTimeline({
             {/* Confidence threshold marker */}
             <ReferenceLine
               x={confCrossDay}
-              stroke="#94a3b8"
+              stroke="#000"
               strokeDasharray="3 3"
               strokeWidth={1}
-              strokeOpacity={0.4}
+              strokeOpacity={0.35}
               label={{
                 value: "5% decided",
                 position: "insideTopRight",
-                fill: "#64748b",
+                fill: "#000",
                 fontSize: 9,
               }}
             />
@@ -378,15 +381,15 @@ function AdmissionTimeline({
       </div>
       <div className="mt-3 flex flex-wrap justify-center gap-x-6 gap-y-1 text-xs">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-4 rounded-sm bg-emerald-400" />
+          <span className="inline-block h-2 w-4 border-2 border-black bg-emerald-400" />
           Accepted
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-4 rounded-sm bg-amber-400" />
+          <span className="inline-block h-2 w-4 border-2 border-black bg-amber-400" />
           Waitlisted
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2 w-4 rounded-sm bg-rose-400" />
+          <span className="inline-block h-2 w-4 border-2 border-black bg-rose-400" />
           Rejected
         </span>
         <span className="flex items-center gap-1.5">
@@ -394,11 +397,11 @@ function AdmissionTimeline({
           Today
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0 w-4 border-t border-dashed border-indigo-400" />
+          <span className="inline-block h-0 w-4 border-t-2 border-dashed border-indigo-600" />
           Wave
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0 w-4 border-t border-dashed border-slate-500" />
+          <span className="inline-block h-0 w-4 border-t-2 border-dashed border-black" />
           Low Data
         </span>
       </div>
@@ -416,32 +419,32 @@ function WaveTimeline({
   if (!waveInfo) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-200">
+    <div className="nb-card">
+      <h2 className="mb-1 text-lg font-black">
         Wave Analysis
       </h2>
-      <p className="mb-4 text-xs text-slate-500">
+      <p className="mb-4 text-xs font-medium text-neutral-700">
         {waveInfo.total_waves} detected waves at this school
       </p>
 
       <div className="mb-3 flex gap-4 text-center text-xs">
-        <div className="flex-1 rounded-lg bg-slate-700/40 p-2">
-          <div className="text-lg font-bold text-rose-400">
+        <div className="flex-1 border-2 border-black bg-white p-2 shadow-[4px_4px_0_0_#000]">
+          <div className="text-lg font-black text-black">
             {waveInfo.waves_passed}
           </div>
-          <div className="text-slate-400">Waves Passed</div>
+          <div className="font-medium text-neutral-700">Waves Passed</div>
         </div>
-        <div className="flex-1 rounded-lg bg-slate-700/40 p-2">
-          <div className="text-lg font-bold text-indigo-400">
+        <div className="flex-1 border-2 border-black bg-white p-2 shadow-[4px_4px_0_0_#000]">
+          <div className="text-lg font-black text-black">
             {waveInfo.waves_remaining}
           </div>
-          <div className="text-slate-400">Waves Remaining</div>
+          <div className="font-medium text-neutral-700">Waves Remaining</div>
         </div>
       </div>
 
       {waveInfo.passed_waves.length > 0 && (
         <div className="mb-3">
-          <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-slate-500">
+          <div className="mb-1.5 text-xs font-black uppercase tracking-wider text-neutral-700">
             Survived Waves
           </div>
           <div className="space-y-1">
@@ -450,20 +453,20 @@ function WaveTimeline({
               return (
                 <div
                   key={i}
-                  className="flex items-center gap-2 rounded-md bg-slate-700/30 px-2 py-1 text-xs"
+                  className="flex items-center gap-2 border-2 border-black bg-white px-2 py-1 text-xs"
                 >
-                  <span className="min-w-[70px] text-slate-400">
+                  <span className="min-w-[70px] font-medium text-neutral-700">
                     {dayToApproxDate(w.center, matYear)}
                   </span>
-                  <span className="text-slate-500">{w.count} decisions</span>
+                  <span className="font-medium text-neutral-700">{w.count} decisions</span>
                   <div className="ml-auto flex gap-2">
-                    <span className="text-emerald-400">
+                    <span className="font-bold text-emerald-700">
                       {Math.round((w.accepted / total) * 100)}% A
                     </span>
-                    <span className="text-amber-400">
+                    <span className="font-bold text-amber-700">
                       {Math.round((w.waitlisted / total) * 100)}% WL
                     </span>
-                    <span className="text-rose-400">
+                    <span className="font-bold text-rose-700">
                       {Math.round((w.rejected / total) * 100)}% R
                     </span>
                   </div>
@@ -476,7 +479,7 @@ function WaveTimeline({
 
       {waveInfo.upcoming_waves.length > 0 && (
         <div>
-          <div className="mb-1.5 text-xs font-medium uppercase tracking-wider text-slate-500">
+          <div className="mb-1.5 text-xs font-black uppercase tracking-wider text-neutral-700">
             Upcoming Waves
           </div>
           <div className="space-y-1">
@@ -485,20 +488,20 @@ function WaveTimeline({
               return (
                 <div
                   key={i}
-                  className="flex items-center gap-2 rounded-md border border-indigo-500/20 bg-indigo-500/5 px-2 py-1 text-xs"
+                  className="flex items-center gap-2 border-2 border-black bg-indigo-50 px-2 py-1 text-xs"
                 >
-                  <span className="min-w-[70px] font-medium text-indigo-300">
+                  <span className="min-w-[70px] font-black text-indigo-700">
                     ~{dayToApproxDate(w.center, matYear)}
                   </span>
-                  <span className="text-slate-500">{w.count} decisions</span>
+                  <span className="font-medium text-neutral-700">{w.count} decisions</span>
                   <div className="ml-auto flex gap-2">
-                    <span className="text-emerald-400">
+                    <span className="font-bold text-emerald-700">
                       {Math.round((w.accepted / total) * 100)}% A
                     </span>
-                    <span className="text-amber-400">
+                    <span className="font-bold text-amber-700">
                       {Math.round((w.waitlisted / total) * 100)}% WL
                     </span>
-                    <span className="text-rose-400">
+                    <span className="font-bold text-rose-700">
                       {Math.round((w.rejected / total) * 100)}% R
                     </span>
                   </div>
@@ -539,7 +542,7 @@ function App() {
   const [yearsOut, setYearsOut] = useState("");
 
   useEffect(() => {
-    fetch("/api/schools")
+    fetch(`${API_BASE}/api/schools`)
       .then((r) => r.json())
       .then((d) => setSchools(d.schools))
       .catch(() => setError("Failed to load school list"));
@@ -575,12 +578,12 @@ function App() {
       if (yearsOut !== "") body.years_out = parseInt(yearsOut);
 
       const [resp, timelineResp] = await Promise.all([
-        fetch("/api/predict", {
+        fetch(`${API_BASE}/api/predict`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         }),
-        fetch("/api/predict_timeline", {
+        fetch(`${API_BASE}/api/predict_timeline`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -604,36 +607,36 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
+    <div className="min-h-screen bg-[var(--nb-bg)] text-black">
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:py-14">
         {/* Header */}
-        <div className="mb-10 text-center">
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-              Law School
-            </span>{" "}
-            Admissions Calculator
+        <div className="mb-10">
+          <div className="inline-flex items-center gap-2 border-2 border-black bg-white px-3 py-1 text-xs font-bold uppercase tracking-widest shadow-[4px_4px_0_0_#000]">
+            LSD.law Data Model
+          </div>
+          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">
+            Law School Admissions Calculator
           </h1>
-          <p className="mt-3 text-lg text-slate-400">
-            Wave-aware GBDT predictions based on 700K+ historical decisions
-            from LSD.law
+          <p className="mt-3 max-w-2xl text-sm font-medium text-neutral-700">
+            Wave-aware LightGBM predictions with cycle-year features and
+            school-specific decision waves.
           </p>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-[1fr_420px]">
+        <div className="grid gap-8 lg:grid-cols-[1fr_440px]">
           {/* Form */}
           <form
             onSubmit={handleSubmit}
-            className="space-y-6 rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm"
+            className="nb-card space-y-6"
           >
             {/* Core Stats */}
             <div>
-              <h2 className="mb-4 text-lg font-semibold text-slate-200">
+              <h2 className="mb-4 text-lg font-black">
                 Core Stats
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="nb-label mb-1 block">
                     LSAT Score
                   </label>
                   <input
@@ -644,10 +647,10 @@ function App() {
                     onChange={(e) => setLsat(parseInt(e.target.value) || 120)}
                     className={INPUT_CLS}
                   />
-                  <div className="mt-1 text-xs text-slate-500">120 - 180</div>
+                  <div className="mt-1 text-xs font-medium text-neutral-600">120 - 180</div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="nb-label mb-1 block">
                     GPA
                   </label>
                   <input
@@ -659,7 +662,7 @@ function App() {
                     onChange={(e) => setGpa(parseFloat(e.target.value) || 2.0)}
                     className={INPUT_CLS}
                   />
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs font-medium text-neutral-600">
                     2.00 - 4.30 (LSAC scale)
                   </div>
                 </div>
@@ -668,12 +671,12 @@ function App() {
 
             {/* School & Timing */}
             <div>
-              <h2 className="mb-4 text-lg font-semibold text-slate-200">
+              <h2 className="mb-4 text-lg font-black">
                 School & Timing
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="nb-label mb-1 block">
                     School
                   </label>
                   <SchoolCombobox
@@ -684,7 +687,7 @@ function App() {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-300">
+                    <label className="nb-label mb-1 block">
                       App Sent Date
                     </label>
                     <input
@@ -695,24 +698,21 @@ function App() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-emerald-400">
+                    <label className="nb-label mb-1 block">
                       Today's Date
                     </label>
                     <input
                       type="date"
                       value={currentDate}
                       onChange={(e) => setCurrentDate(e.target.value)}
-                      className={INPUT_CLS.replace(
-                        "border-slate-600",
-                        "border-emerald-600/50"
-                      )}
+                      className={INPUT_CLS}
                     />
-                    <div className="mt-1 text-xs text-emerald-500/70">
+                    <div className="mt-1 text-xs font-medium text-neutral-600">
                       Where are you in the cycle?
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-300">
+                    <label className="nb-label mb-1 block">
                       Cycle (Fall)
                     </label>
                     <select
@@ -720,7 +720,7 @@ function App() {
                       onChange={(e) =>
                         setMatriculatingYear(parseInt(e.target.value))
                       }
-                      className={INPUT_CLS}
+                      className="nb-select"
                     >
                       {[2024, 2025, 2026, 2027].map((y) => (
                         <option key={y} value={y}>
@@ -735,18 +735,18 @@ function App() {
 
             {/* Profile */}
             <div>
-              <h2 className="mb-4 text-lg font-semibold text-slate-200">
+              <h2 className="mb-4 text-lg font-black">
                 Applicant Profile
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="nb-label mb-1 block">
                     Softs Tier
                   </label>
                   <select
                     value={softs}
                     onChange={(e) => setSofts(e.target.value)}
-                    className={INPUT_CLS}
+                    className="nb-select"
                   >
                     <option value="">Unknown</option>
                     <option value="T1">T1 - Extraordinary</option>
@@ -756,7 +756,7 @@ function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="nb-label mb-1 block">
                     Years Out of School
                   </label>
                   <input
@@ -794,10 +794,8 @@ function App() {
                     type="button"
                     key={label}
                     onClick={() => set(!val)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${
-                      val
-                        ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
-                        : "border-slate-600 bg-slate-800 text-slate-400 hover:border-slate-500"
+                    className={`border-2 border-black px-3 py-1 text-xs font-bold transition-transform active:translate-x-[1px] active:translate-y-[1px] ${
+                      val ? "bg-indigo-600 text-white" : "bg-white text-black"
                     }`}
                   >
                     {label}
@@ -809,7 +807,7 @@ function App() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 py-3 text-sm font-semibold text-white shadow-lg transition-all hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50"
+              className={`nb-button ${loading ? "opacity-70" : ""}`}
             >
               {loading ? "Calculating..." : "Calculate Admission Odds"}
             </button>
@@ -818,7 +816,7 @@ function App() {
           {/* Results Panel */}
           <div className="space-y-6">
             {error && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+              <div className="border-2 border-black bg-rose-100 p-4 text-sm font-medium text-black shadow-[6px_6px_0_0_#000]">
                 {error}
               </div>
             )}
@@ -826,28 +824,28 @@ function App() {
             {result && (
               <>
                 {/* Probabilities */}
-                <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-                  <h2 className="mb-1 text-lg font-semibold text-slate-200">
+                <div className="nb-card">
+                  <h2 className="mb-1 text-lg font-black">
                     Predicted Odds
                   </h2>
-                  <p className="mb-4 text-xs text-slate-500">
+                  <p className="mb-4 text-xs font-medium text-neutral-700">
                     Conditional on no decision received yet
                   </p>
                   <div className="space-y-4">
                     <ProbabilityBar
                       label="Accepted"
                       value={result.probabilities.accepted}
-                      color="text-emerald-400"
+                      color="text-emerald-600"
                     />
                     <ProbabilityBar
                       label="Waitlisted"
                       value={result.probabilities.waitlisted}
-                      color="text-amber-400"
+                      color="text-amber-600"
                     />
                     <ProbabilityBar
                       label="Rejected"
                       value={result.probabilities.rejected}
-                      color="text-rose-400"
+                      color="text-rose-600"
                     />
                   </div>
                 </div>
@@ -859,46 +857,46 @@ function App() {
                 />
 
                 {/* School Context */}
-                <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-                  <h2 className="mb-4 text-lg font-semibold text-slate-200">
+                <div className="nb-card">
+                  <h2 className="mb-4 text-lg font-black">
                     School Context
                   </h2>
                   <div className="space-y-2 text-sm">
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between font-medium text-neutral-700">
                       <span>Historical Accept Rate</span>
-                      <span className="font-medium text-slate-200">
+                      <span className="font-black text-black">
                         {result.school_context.school_accept_rate}%
                       </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between font-medium text-neutral-700">
                       <span>Median LSAT</span>
-                      <span className="font-medium text-slate-200">
+                      <span className="font-black text-black">
                         {result.school_context.school_median_lsat}
                       </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between font-medium text-neutral-700">
                       <span>LSAT 25th - 75th</span>
-                      <span className="font-medium text-slate-200">
+                      <span className="font-black text-black">
                         {result.school_context.school_25_lsat} -{" "}
                         {result.school_context.school_75_lsat}
                       </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between font-medium text-neutral-700">
                       <span>Median GPA</span>
-                      <span className="font-medium text-slate-200">
+                      <span className="font-black text-black">
                         {result.school_context.school_median_gpa?.toFixed(2)}
                       </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between font-medium text-neutral-700">
                       <span>GPA 25th - 75th</span>
-                      <span className="font-medium text-slate-200">
+                      <span className="font-black text-black">
                         {result.school_context.school_25_gpa?.toFixed(2)} -{" "}
                         {result.school_context.school_75_gpa?.toFixed(2)}
                       </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between font-medium text-neutral-700">
                       <span>Total Data Points</span>
-                      <span className="font-medium text-slate-200">
+                      <span className="font-black text-black">
                         {result.school_context.school_count?.toLocaleString()}
                       </span>
                     </div>
@@ -916,16 +914,16 @@ function App() {
             )}
 
             {!result && !error && (
-              <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-slate-700 text-slate-500">
-                <p className="text-center text-sm">
+              <div className="flex h-64 items-center justify-center border-2 border-dashed border-black bg-white shadow-[6px_6px_0_0_#000]">
+                <p className="text-center text-sm font-medium text-neutral-700">
                   Fill in your details and click
                   <br />
-                  <span className="font-medium text-slate-400">
+                  <span className="font-black text-black">
                     Calculate Admission Odds
                   </span>
                   <br />
                   <br />
-                  <span className="text-xs text-slate-600">
+                  <span className="text-xs font-medium text-neutral-600">
                     Set "Today's Date" to see how surviving
                     <br />
                     past decision waves affects your odds
@@ -939,7 +937,7 @@ function App() {
         {/* Full-width Visualization Section */}
         {result && schoolName && (
           <div className="mt-8 space-y-6">
-            <h2 className="text-center text-xl font-semibold text-slate-300">
+            <h2 className="text-center text-xl font-black">
               School Analytics
             </h2>
             <div className="grid gap-6 lg:grid-cols-2">
@@ -966,12 +964,25 @@ function App() {
           </div>
         )}
 
+        {/* Cycle Pulse — always visible */}
+        <div className="mt-12">
+          <div className="mb-4 flex items-center gap-3">
+            <h2 className="text-xl font-black">Cycle Pulse</h2>
+            <span className="nb-pill bg-indigo-100 text-indigo-800">NEW</span>
+          </div>
+          <p className="mb-4 text-sm font-medium text-neutral-700">
+            Is this admissions cycle moving faster or slower than usual?
+            Compare decision volume across cycles — all schools or a specific one.
+          </p>
+          <CyclePace schoolList={schools} />
+        </div>
+
         {/* Footer */}
-        <div className="mt-12 text-center text-xs text-slate-500">
+        <div className="mt-12 text-center text-xs font-medium text-neutral-700">
           Data sourced from{" "}
           <a
             href="https://lsd.law"
-            className="text-indigo-400 hover:text-indigo-300"
+            className="underline decoration-2 underline-offset-2"
             target="_blank"
           >
             LSD.law

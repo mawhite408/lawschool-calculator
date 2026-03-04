@@ -14,7 +14,11 @@ import {
   Cell,
   PieChart,
   Pie,
+  ReferenceLine,
+  Legend,
 } from "recharts";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 // ─── Shared helpers ────────────────────────────
 
@@ -58,7 +62,7 @@ export function LsatGpaScatter({
     if (!schoolName) return;
     setLoading(true);
     const params = year ? `?year=${year}` : "";
-    fetch(`/api/viz/scatter/${encodeURIComponent(schoolName)}${params}`)
+    fetch(`${API_BASE}/api/viz/scatter/${encodeURIComponent(schoolName)}${params}`)
       .then((r) => r.json())
       .then((d) => setPoints(d.points || []))
       .finally(() => setLoading(false));
@@ -79,16 +83,16 @@ export function LsatGpaScatter({
   if (!schoolName) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-200">
+    <div className="nb-card">
+      <h2 className="mb-1 text-lg font-black">
         Where Do You Stand?
       </h2>
-      <p className="mb-4 text-xs text-slate-500">
+      <p className="mb-4 text-xs font-medium text-neutral-700">
         Your stats (blue) vs. historical applicants{year ? ` (${year} cycle)` : ""}
         {" · "}{points.length} data points
       </p>
       {loading ? (
-        <div className="flex h-64 items-center justify-center text-sm text-slate-500">Loading...</div>
+        <div className="flex h-64 items-center justify-center text-sm font-medium text-neutral-700">Loading...</div>
       ) : (
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
@@ -118,7 +122,7 @@ export function LsatGpaScatter({
                   if (!payload?.length) return null;
                   const d = payload[0].payload;
                   return (
-                    <div className="rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs">
+                    <div className="border-2 border-black bg-white px-2 py-1 text-xs shadow-[3px_3px_0_0_#000]">
                       LSAT: {d.lsat} · GPA: {d.gpa?.toFixed(2)}
                       {d.result && <span className="ml-1 capitalize"> · {d.result}</span>}
                     </div>
@@ -140,7 +144,7 @@ export function LsatGpaScatter({
           </ResponsiveContainer>
         </div>
       )}
-      <div className="mt-2 flex justify-center gap-5 text-xs text-slate-400">
+      <div className="mt-2 flex justify-center gap-5 text-xs font-medium text-neutral-700">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" /> Accepted</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400" /> Waitlisted</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-400" /> Rejected</span>
@@ -169,7 +173,7 @@ export function MedianDrift({ schoolName }: { schoolName: string }) {
 
   useEffect(() => {
     if (!schoolName) return;
-    fetch(`/api/viz/median_drift/${encodeURIComponent(schoolName)}`)
+    fetch(`${API_BASE}/api/viz/median_drift/${encodeURIComponent(schoolName)}`)
       .then((r) => r.json())
       .then((d) => setData(d.yearly || []));
   }, [schoolName]);
@@ -187,19 +191,19 @@ export function MedianDrift({ schoolName }: { schoolName: string }) {
   }));
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
+    <div className="nb-card">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-200">Median Drift</h2>
-          <p className="text-xs text-slate-500">How accepted {metric.toUpperCase()} has shifted over time</p>
+          <h2 className="text-lg font-black">Median Drift</h2>
+          <p className="text-xs font-medium text-neutral-700">How accepted {metric.toUpperCase()} has shifted over time</p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-slate-700/50 p-0.5">
+        <div className="flex gap-1 border-2 border-black bg-white p-0.5 shadow-[3px_3px_0_0_#000]">
           {(["lsat", "gpa"] as const).map((m) => (
             <button
               key={m}
               onClick={() => setMetric(m)}
               className={`rounded-md px-3 py-1 text-xs font-medium transition-all ${
-                metric === m ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                metric === m ? "bg-indigo-600 text-white" : "text-black hover:bg-neutral-100"
               }`}
             >
               {m.toUpperCase()}
@@ -228,15 +232,15 @@ export function MedianDrift({ schoolName }: { schoolName: string }) {
                 if (!payload?.length) return null;
                 const d = payload[0].payload as DriftYear;
                 return (
-                  <div className="rounded border border-slate-600 bg-slate-900 px-3 py-2 text-xs">
-                    <div className="font-medium text-slate-300">{d.matriculating_year} cycle</div>
-                    <div className="text-indigo-400">
+                  <div className="border-2 border-black bg-white px-3 py-2 text-xs shadow-[3px_3px_0_0_#000]">
+                    <div className="font-black text-black">{d.matriculating_year} cycle</div>
+                    <div className="font-bold text-indigo-700">
                       Median: {metric === "lsat" ? d.median_lsat : d.median_gpa?.toFixed(2)}
                     </div>
-                    <div className="text-slate-500">
+                    <div className="font-medium text-neutral-700">
                       25th-75th: {metric === "lsat" ? `${d.p25_lsat}–${d.p75_lsat}` : `${d.p25_gpa?.toFixed(2)}–${d.p75_gpa?.toFixed(2)}`}
                     </div>
-                    <div className="text-slate-600">{d.count} accepted</div>
+                    <div className="font-medium text-neutral-600">{d.count} accepted</div>
                   </div>
                 );
               }}
@@ -293,7 +297,7 @@ export function WaveHeatmap({
 
   useEffect(() => {
     if (!schoolName) return;
-    fetch(`/api/viz/wave_heatmap/${encodeURIComponent(schoolName)}`)
+    fetch(`${API_BASE}/api/viz/wave_heatmap/${encodeURIComponent(schoolName)}`)
       .then((r) => r.json())
       .then((d) => setWeeks(d.weeks || []));
   }, [schoolName]);
@@ -303,9 +307,9 @@ export function WaveHeatmap({
   const maxTotal = Math.max(...weeks.map((w) => w.total), 1);
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-200">Decision Wave Calendar</h2>
-      <p className="mb-4 text-xs text-slate-500">
+    <div className="nb-card">
+      <h2 className="mb-1 text-lg font-black">Decision Wave Calendar</h2>
+      <p className="mb-4 text-xs font-medium text-neutral-700">
         Weekly decision volume, color = dominant outcome
       </p>
       <div className="h-48">
@@ -329,14 +333,14 @@ export function WaveHeatmap({
                 if (!payload?.length) return null;
                 const d = payload[0].payload as WeekBucket;
                 return (
-                  <div className="rounded border border-slate-600 bg-slate-900 px-3 py-2 text-xs">
-                    <div className="font-medium text-slate-300">
+                  <div className="border-2 border-black bg-white px-3 py-2 text-xs shadow-[3px_3px_0_0_#000]">
+                    <div className="font-black text-black">
                       {dayToLabel(d.day_start, matYear)} – {dayToLabel(d.day_start + 6, matYear)}
                     </div>
-                    <div className="text-slate-400">{d.total} decisions</div>
-                    <div className="text-emerald-400">{d.accepted} accepted</div>
-                    <div className="text-amber-400">{d.waitlisted} waitlisted</div>
-                    <div className="text-rose-400">{d.rejected} rejected</div>
+                    <div className="font-medium text-neutral-700">{d.total} decisions</div>
+                    <div className="font-bold text-emerald-700">{d.accepted} accepted</div>
+                    <div className="font-bold text-amber-700">{d.waitlisted} waitlisted</div>
+                    <div className="font-bold text-rose-700">{d.rejected} rejected</div>
                   </div>
                 );
               }}
@@ -356,7 +360,7 @@ export function WaveHeatmap({
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 flex justify-center gap-5 text-xs text-slate-400">
+      <div className="mt-2 flex justify-center gap-5 text-xs font-medium text-neutral-700">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-4 rounded-sm bg-emerald-400" /> Accept-heavy</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-4 rounded-sm bg-amber-400" /> WL-heavy</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-4 rounded-sm bg-rose-400" /> Reject-heavy</span>
@@ -388,7 +392,7 @@ export function ApplicantsLikeYou({
   useEffect(() => {
     if (!schoolName) return;
     fetch(
-      `/api/viz/similar_applicants/${encodeURIComponent(schoolName)}?lsat=${lsat}&gpa=${gpa}`
+      `${API_BASE}/api/viz/similar_applicants/${encodeURIComponent(schoolName)}?lsat=${lsat}&gpa=${gpa}`
     )
       .then((r) => r.json())
       .then((d) => setData(d));
@@ -403,11 +407,11 @@ export function ApplicantsLikeYou({
   ];
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-200">
+    <div className="nb-card">
+      <h2 className="mb-1 text-lg font-black">
         Applicants Like You
       </h2>
-      <p className="mb-3 text-xs text-slate-500">
+      <p className="mb-3 text-xs font-medium text-neutral-700">
         Historical outcomes for LSAT {lsat}±2 / GPA {gpa.toFixed(1)}±0.1 · {data.total} applicants
       </p>
       <div className="flex items-center gap-4">
@@ -433,7 +437,7 @@ export function ApplicantsLikeYou({
                   if (!payload?.length) return null;
                   const d = payload[0];
                   return (
-                    <div className="rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs">
+                    <div className="border-2 border-black bg-white px-2 py-1 text-xs shadow-[3px_3px_0_0_#000]">
                       {d.name}: {d.value} ({data.total > 0 ? Math.round(((d.value as number) / data.total) * 100) : 0}%)
                     </div>
                   );
@@ -447,7 +451,7 @@ export function ApplicantsLikeYou({
             const pct = data.total > 0 ? Math.round((entry.value / data.total) * 100) : 0;
             return (
               <div key={entry.name} className="flex items-center gap-2">
-                <div className="h-2 flex-1 rounded-full bg-slate-700/50 overflow-hidden">
+                <div className="h-2 flex-1 border-2 border-black bg-white overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all"
                     style={{ width: `${pct}%`, backgroundColor: entry.fill }}
@@ -478,7 +482,7 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
 
   useEffect(() => {
     if (!schoolName) return;
-    fetch(`/api/viz/wait_times/${encodeURIComponent(schoolName)}`)
+    fetch(`${API_BASE}/api/viz/wait_times/${encodeURIComponent(schoolName)}`)
       .then((r) => r.json())
       .then((d) => setRaw(d.buckets || []));
   }, [schoolName]);
@@ -501,11 +505,11 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
   if (!schoolName || chartData.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 backdrop-blur-sm">
-      <h2 className="mb-1 text-lg font-semibold text-slate-200">
+    <div className="nb-card">
+      <h2 className="mb-1 text-lg font-black">
         Days to Decision
       </h2>
-      <p className="mb-4 text-xs text-slate-500">
+      <p className="mb-4 text-xs font-medium text-neutral-700">
         How long applicants waited from submission to decision
       </p>
       <div className="h-48">
@@ -528,11 +532,11 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
                 if (!payload?.length) return null;
                 const d = payload[0].payload;
                 return (
-                  <div className="rounded border border-slate-600 bg-slate-900 px-3 py-2 text-xs">
-                    <div className="font-medium text-slate-300">{d.bucket}–{d.bucket + 13} days</div>
-                    <div className="text-emerald-400">Accepted: {d.accepted}</div>
-                    <div className="text-amber-400">Waitlisted: {d.waitlisted}</div>
-                    <div className="text-rose-400">Rejected: {d.rejected}</div>
+                  <div className="border-2 border-black bg-white px-3 py-2 text-xs shadow-[3px_3px_0_0_#000]">
+                    <div className="font-black text-black">{d.bucket}–{d.bucket + 13} days</div>
+                    <div className="font-bold text-emerald-700">Accepted: {d.accepted}</div>
+                    <div className="font-bold text-amber-700">Waitlisted: {d.waitlisted}</div>
+                    <div className="font-bold text-rose-700">Rejected: {d.rejected}</div>
                   </div>
                 );
               }}
@@ -543,11 +547,221 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-2 flex justify-center gap-5 text-xs text-slate-400">
+      <div className="mt-2 flex justify-center gap-5 text-xs font-medium text-neutral-700">
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-4 rounded-sm bg-emerald-400" /> Accepted</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-4 rounded-sm bg-amber-400" /> Waitlisted</span>
         <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-4 rounded-sm bg-rose-400" /> Rejected</span>
       </div>
+    </div>
+  );
+}
+
+// ─── #6: Cycle Pace ("Is This Cycle Slow?") ───────────────
+
+interface PaceCurvePoint { day: number; frac: number }
+interface PaceCycleData { curve: PaceCurvePoint[]; raw_total: number }
+interface CyclePaceResponse {
+  today_day: number;
+  today_date: string;
+  cycles: Record<string, PaceCycleData>;
+  pct_vs_past3: number | null;
+  current_mat_year: number;
+  past_mat_years: number[];
+  error?: string;
+}
+
+const CYCLE_COLORS: Record<string, string> = {
+  current: "#4f46e5",
+  lag1:    "#f59e0b",
+  lag2:    "#10b981",
+  lag3:    "#94a3b8",
+};
+
+function cyclePaceLabel(day: number): string {
+  const base = new Date(2025, 8, 1);
+  base.setDate(base.getDate() + day);
+  return base.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function CyclePace({ schoolList }: { schoolList: string[] }) {
+  const [schoolName, setSchoolName] = useState("ALL");
+  const [query, setQuery] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [data, setData] = useState<CyclePaceResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    const param = schoolName === "ALL" ? "" : `?school_name=${encodeURIComponent(schoolName)}`;
+    fetch(`${API_BASE}/api/cycle_pace${param}`)
+      .then((r) => r.json())
+      .then((d: CyclePaceResponse) => setData(d))
+      .finally(() => setLoading(false));
+  }, [schoolName]);
+
+  const chartData = useMemo(() => {
+    if (!data?.cycles) return [];
+    const yearKeys = Object.keys(data.cycles).sort();
+    const firstCurve = data.cycles[yearKeys[0]]?.curve ?? [];
+    return firstCurve.map((pt) => {
+      const row: Record<string, number> = { day: pt.day };
+      for (const yr of yearKeys) {
+        const match = data.cycles[yr].curve.find((p) => p.day === pt.day);
+        row[yr] = match ? +(match.frac * 100).toFixed(2) : 0;
+      }
+      return row;
+    });
+  }, [data]);
+
+  const pct = data?.pct_vs_past3;
+  const isSlower = pct != null && pct < -3;
+  const isFaster = pct != null && pct > 3;
+
+  const headlineBg = isSlower ? "bg-rose-100 border-rose-600"
+    : isFaster ? "bg-emerald-100 border-emerald-600"
+    : "bg-amber-100 border-amber-600";
+  const headlineText = isSlower ? "text-rose-800"
+    : isFaster ? "text-emerald-800"
+    : "text-amber-800";
+  const headlineLabel = loading ? "LOADING..."
+    : pct == null ? "INSUFFICIENT DATA"
+    : isSlower ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% SLOWER THAN THE LAST 3 CYCLES`
+    : isFaster ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% FASTER THAN THE LAST 3 CYCLES`
+    : "THIS CYCLE IS ON PACE WITH THE LAST 3 CYCLES";
+
+  const currentYear = data?.current_mat_year ?? 2026;
+  const pastYears = (data?.past_mat_years ?? []).sort();
+  const yearColorMap: Record<string, string> = {};
+  if (pastYears.length >= 3) yearColorMap[String(pastYears[0])] = CYCLE_COLORS.lag3;
+  if (pastYears.length >= 2) yearColorMap[String(pastYears[1])] = CYCLE_COLORS.lag2;
+  if (pastYears.length >= 1) yearColorMap[String(pastYears[pastYears.length - 1])] = CYCLE_COLORS.lag1;
+  yearColorMap[String(currentYear)] = CYCLE_COLORS.current;
+
+  const filteredSchools = useMemo(
+    () => ["ALL", ...schoolList].filter((s) => s.toLowerCase().includes(query.toLowerCase())),
+    [query, schoolList]
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* School selector */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="nb-label">School</span>
+        <div className="relative w-72">
+          <input
+            className="nb-input text-sm"
+            value={showDropdown ? query : schoolName === "ALL" ? "All Schools (Consolidated)" : schoolName}
+            placeholder="Search schools..."
+            onFocus={() => { setShowDropdown(true); setQuery(""); }}
+            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {showDropdown && (
+            <ul className="absolute z-50 mt-0.5 max-h-52 w-full overflow-auto border-2 border-black bg-white shadow-[4px_4px_0_0_#000]">
+              {filteredSchools.slice(0, 40).map((s) => (
+                <li
+                  key={s}
+                  className="cursor-pointer px-3 py-1.5 text-xs font-medium hover:bg-indigo-600 hover:text-white"
+                  onMouseDown={() => { setSchoolName(s); setQuery(""); setShowDropdown(false); }}
+                >
+                  {s === "ALL" ? "All Schools (Consolidated)" : s}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Headline verdict */}
+      <div className={`border-2 p-5 ${headlineBg}`}>
+        <p className={`text-2xl font-black tracking-tight ${headlineText}`}>{headlineLabel}</p>
+        {!loading && pct != null && (
+          <p className="mt-1.5 text-xs font-medium text-neutral-700">
+            As of {data?.today_date} · cumulative decisions vs avg of {pastYears.join(", ")} cycles
+            {data?.cycles?.[String(currentYear)] && (
+              <> · {data.cycles[String(currentYear)].raw_total.toLocaleString()} decisions recorded this cycle</>
+            )}
+          </p>
+        )}
+      </div>
+
+      {/* Multi-line chart */}
+      {chartData.length > 0 && (
+        <div className="nb-card">
+          <h3 className="mb-1 text-sm font-black">Cumulative Decisions by Day of Cycle</h3>
+          <p className="mb-4 text-xs font-medium text-neutral-600">
+            % of a typical cycle's total decisions recorded by date. Dashed vertical = today.
+          </p>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="day"
+                  tickFormatter={(d: number) => cyclePaceLabel(d)}
+                  tick={{ fontSize: 9, fill: "#64748b" }}
+                  interval={29}
+                  stroke="#cbd5e1"
+                />
+                <YAxis
+                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  stroke="#cbd5e1"
+                  width={38}
+                  domain={[0, "auto"]}
+                />
+                <Tooltip
+                  content={({ payload, label }) => {
+                    if (!payload?.length) return null;
+                    return (
+                      <div className="border-2 border-black bg-white px-3 py-2 text-xs shadow-[3px_3px_0_0_#000]">
+                        <div className="mb-1 font-black">{cyclePaceLabel(label as number)}</div>
+                        {payload
+                          .slice()
+                          .sort((a, b) => (b.value as number) - (a.value as number))
+                          .map((p) => (
+                            <div key={String(p.dataKey)} style={{ color: p.color }} className="font-bold">
+                              {p.dataKey === String(currentYear) ? `${p.dataKey} ★` : p.dataKey}:{" "}
+                              {(p.value as number).toFixed(1)}%
+                            </div>
+                          ))}
+                      </div>
+                    );
+                  }}
+                />
+                {data && (
+                  <ReferenceLine
+                    x={data.today_day}
+                    stroke="#0a0a0a"
+                    strokeDasharray="4 3"
+                    strokeWidth={2}
+                    label={{ value: "Today", position: "insideTopRight", fontSize: 9, fill: "#0a0a0a", fontWeight: 700 }}
+                  />
+                )}
+                {Object.keys(yearColorMap)
+                  .sort()
+                  .map((yr) => (
+                    <Line
+                      key={yr}
+                      type="monotone"
+                      dataKey={yr}
+                      stroke={yearColorMap[yr]}
+                      strokeWidth={yr === String(currentYear) ? 3 : 1.5}
+                      dot={false}
+                      strokeDasharray={yr === String(currentYear) ? undefined : "5 3"}
+                    />
+                  ))}
+                <Legend
+                  formatter={(value) =>
+                    value === String(currentYear) ? `${value} (this cycle)` : String(value)
+                  }
+                  wrapperStyle={{ fontSize: 11, fontWeight: 700 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -635,6 +635,39 @@ for school_name, group in _viz_df.groupby("school_name"):
 
 print("  Visualization data ready.")
 
+# --- Pre-aggregate cycle pace data (for "Is This Cycle Slow?" view) ---
+print("  Pre-aggregating cycle pace data...")
+_CURRENT_MAT_YEAR = 2026
+_PACE_YEARS = [_CURRENT_MAT_YEAR - 3, _CURRENT_MAT_YEAR - 2, _CURRENT_MAT_YEAR - 1, _CURRENT_MAT_YEAR]
+
+
+def _build_pace_for_subset(df_sub: pd.DataFrame) -> dict:
+    """Return {year: {total, curve}} for _PACE_YEARS."""
+    result = {}
+    for mat_year in _PACE_YEARS:
+        sub = df_sub[df_sub["matriculating_year"] == mat_year]
+        valid = sub["day_of_cycle_decision"].dropna()
+        valid = valid[(valid >= 0) & (valid <= 400)]
+        if len(valid) < 5:
+            continue
+        sorted_days = np.sort(valid.values)
+        total = int(len(sorted_days))
+        curve = [
+            {"day": int(d), "count": int(np.searchsorted(sorted_days, d, side="right"))}
+            for d in range(0, 401, 3)
+        ]
+        result[mat_year] = {"total": total, "curve": curve}
+    return result
+
+
+_pace_cache: dict = {}
+_pace_cache["ALL"] = _build_pace_for_subset(_viz_df)
+for _school, _grp in _viz_df.groupby("school_name"):
+    _pr = _build_pace_for_subset(_grp)
+    if _pr:
+        _pace_cache[_school] = _pr
+print(f"  Cycle pace data ready ({len(_pace_cache)} entries).")
+
 
 @app.get("/api/viz/scatter/{school_name:path}")
 def viz_scatter(school_name: str, year: Optional[int] = None):
@@ -693,6 +726,70 @@ def viz_wait_times(school_name: str):
     """Return days-to-decision distribution by outcome for a school."""
     data = _waittime_cache.get(school_name, [])
     return {"school_name": school_name, "buckets": data}
+
+
+@app.get("/api/cycle_pace")
+def cycle_pace(school_name: str = "ALL"):
+    """Compare current cycle's decision pace to the last 3 cycles.
+
+    Returns normalised cumulative decision curves for each year and a
+    headline pct_vs_past3: negative = slower, positive = faster.
+    """
+    data = _pace_cache.get(school_name)
+    if not data:
+        return {"error": f"No pace data for '{school_name}'"}
+
+    today = date.today()
+    current_cycle_start = datetime(_CURRENT_MAT_YEAR - 1, 9, 1)
+    today_day = max(0, min(
+        (datetime.combine(today, datetime.min.time()) - current_cycle_start).days,
+        400,
+    ))
+
+    # Last 3 complete cycles that have data
+    past_years = sorted([y for y in data if y < _CURRENT_MAT_YEAR])[-3:]
+    past_totals = [data[y]["total"] for y in past_years]
+    avg_past_total = float(np.mean(past_totals)) if past_totals else None
+
+    # Build normalised fraction curves
+    # Current year: denominator = avg_past_total (final total unknown)
+    # Past years:   denominator = their own total
+    cycles: dict = {}
+    for year, year_data in data.items():
+        denom = (avg_past_total if year == _CURRENT_MAT_YEAR and avg_past_total
+                 else year_data["total"])
+        if not denom:
+            continue
+        cycles[str(year)] = {
+            "curve": [
+                {"day": pt["day"], "frac": round(pt["count"] / denom, 4)}
+                for pt in year_data["curve"]
+            ],
+            "raw_total": year_data["total"],
+        }
+
+    def _frac_at(year_str: str, day: int) -> float | None:
+        if year_str not in cycles:
+            return None
+        pts = [p for p in cycles[year_str]["curve"] if p["day"] <= day]
+        return pts[-1]["frac"] if pts else 0.0
+
+    current_frac = _frac_at(str(_CURRENT_MAT_YEAR), today_day)
+    past_fracs = [f for y in past_years if (f := _frac_at(str(y), today_day)) is not None]
+    avg_past_frac = float(np.mean(past_fracs)) if past_fracs else None
+
+    pct_vs_past3: float | None = None
+    if current_frac is not None and avg_past_frac and avg_past_frac > 0:
+        pct_vs_past3 = round((current_frac / avg_past_frac - 1) * 100, 1)
+
+    return {
+        "today_day": today_day,
+        "today_date": today.isoformat(),
+        "cycles": cycles,
+        "pct_vs_past3": pct_vs_past3,
+        "current_mat_year": _CURRENT_MAT_YEAR,
+        "past_mat_years": past_years,
+    }
 
 
 # Serve static frontend
