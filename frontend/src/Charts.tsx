@@ -558,18 +558,19 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
 
 // ─── #6: Cycle Pace ("Is This Cycle Slow?") ───────────────
 
-interface PaceCurvePoint { day: number; count: number }
-interface PaceCycleData { curve: PaceCurvePoint[]; raw_total: number }
+interface PaceCurvePoint { day: number; frac: number; count: number }
+interface PaceCycleData { curve: PaceCurvePoint[]; total_apps: number; decisions_total: number }
 interface CyclePaceResponse {
   today_day: number;
   today_date: string;
   cycles: Record<string, PaceCycleData>;
+  current_frac: number | null;   // % of applicants with a decision today
+  prior_frac: number | null;     // same metric for prior year
+  frac_diff_ppt: number | null;  // percentage-point difference
   pct_vs_prior_year: number | null;
   pct_vs_3yr_avg: number | null;
+  avg_past_frac: number | null;
   prior_year: number | null;
-  current_count: number | null;
-  prior_count: number | null;
-  avg_past_count: number | null;
   current_mat_year: number;
   past_mat_years: number[];
   error?: string;
@@ -612,15 +613,17 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
       const row: Record<string, number> = { day: pt.day };
       for (const yr of yearKeys) {
         const match = data.cycles[yr].curve.find((p) => p.day === pt.day);
-        row[yr] = match ? match.count : 0;
+        // Multiply frac by 100 for a clean % axis
+        row[yr] = match ? +(match.frac * 100).toFixed(2) : 0;
       }
       return row;
     });
   }, [data]);
 
-  const pct = data?.pct_vs_prior_year;
-  const isSlower = pct != null && pct < -5;
-  const isFaster = pct != null && pct > 5;
+  // Use ppt (percentage-point) difference as the headline metric
+  const ppt = data?.frac_diff_ppt;
+  const isSlower = ppt != null && ppt < -2;   // >2 ppt behind = meaningfully slower
+  const isFaster = ppt != null && ppt > 2;
 
   const headlineBg = isSlower ? "bg-rose-100 border-rose-600"
     : isFaster ? "bg-emerald-100 border-emerald-600"
@@ -630,9 +633,11 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
     : "text-amber-800";
   const priorYr = data?.prior_year ?? (data?.current_mat_year ?? 2026) - 1;
   const headlineLabel = loading ? "LOADING..."
-    : pct == null ? "INSUFFICIENT DATA"
-    : isSlower ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% SLOWER THAN ${priorYr}`
-    : isFaster ? `THIS CYCLE IS ${Math.abs(pct).toFixed(1)}% FASTER THAN ${priorYr}`
+    : ppt == null ? "INSUFFICIENT DATA"
+    : isSlower
+      ? `THIS CYCLE IS ${Math.abs(ppt).toFixed(1)} PERCENTAGE POINTS SLOWER THAN ${priorYr}`
+    : isFaster
+      ? `THIS CYCLE IS ${Math.abs(ppt).toFixed(1)} PERCENTAGE POINTS FASTER THAN ${priorYr}`
     : `THIS CYCLE IS ON PACE WITH ${priorYr}`;
 
   const currentYear = data?.current_mat_year ?? 2026;
@@ -681,14 +686,14 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
       {/* Headline verdict */}
       <div className={`border-2 p-5 ${headlineBg}`}>
         <p className={`text-2xl font-black tracking-tight ${headlineText}`}>{headlineLabel}</p>
-        {!loading && pct != null && (
+        {!loading && ppt != null && (
           <p className="mt-1.5 text-xs font-medium text-neutral-700">
             As of {data?.today_date} ·{" "}
-            {data?.current_count?.toLocaleString()} decisions in {currentYear} cycle vs{" "}
-            {data?.prior_count?.toLocaleString()} at same point in {priorYr}
-            {data?.pct_vs_3yr_avg != null && (
+            <strong>{data?.current_frac}%</strong> of {currentYear} applicants have a decision vs{" "}
+            <strong>{data?.prior_frac}%</strong> at this point in {priorYr}
+            {data?.avg_past_frac != null && (
               <span className="ml-2 text-neutral-500">
-                (vs 3-yr avg: {data.pct_vs_3yr_avg > 0 ? "+" : ""}{data.pct_vs_3yr_avg.toFixed(1)}% — inflated by LSD.law growth)
+                (3-yr avg: {data.avg_past_frac}%)
               </span>
             )}
           </p>
@@ -698,9 +703,10 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
       {/* Multi-line chart */}
       {chartData.length > 0 && (
         <div className="nb-card">
-          <h3 className="mb-1 text-sm font-black">Cumulative Decisions by Day of Cycle</h3>
+          <h3 className="mb-1 text-sm font-black">% of Applicants with a Decision by Date</h3>
           <p className="mb-4 text-xs font-medium text-neutral-600">
-            Raw cumulative decision count per cycle. Higher lines in recent years reflect LSD.law platform growth, not necessarily a faster cycle. Dashed vertical = today.
+            Fraction of all applicants (including those still waiting) who have received any decision by each date.
+            Normalised by total applicants per cycle, so LSD.law growth doesn’t inflate the numbers. Dashed vertical = today.
           </p>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -714,11 +720,11 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
                   stroke="#cbd5e1"
                 />
                 <YAxis
-                  tickFormatter={(v: number) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v)}
+                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   stroke="#cbd5e1"
-                  width={42}
-                  domain={[0, "auto"]}
+                  width={38}
+                  domain={[0, 100]}
                 />
                 <Tooltip
                   content={({ payload, label }) => {
@@ -732,7 +738,7 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
                           .map((p) => (
                             <div key={String(p.dataKey)} style={{ color: p.color }} className="font-bold">
                               {p.dataKey === String(currentYear) ? `${p.dataKey} ★` : p.dataKey}:{" "}
-                              {(p.value as number).toLocaleString()} decisions
+                              {(p.value as number).toFixed(1)}% of applicants
                             </div>
                           ))}
                       </div>

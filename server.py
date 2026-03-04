@@ -636,34 +636,78 @@ for school_name, group in _viz_df.groupby("school_name"):
 print("  Visualization data ready.")
 
 # --- Pre-aggregate cycle pace data (for "Is This Cycle Slow?" view) ---
+# We need ALL rows (including pending/no-decision-yet) as the denominator
+# so that "fraction with decision" naturally controls for LSD.law user growth.
 print("  Pre-aggregating cycle pace data...")
 _CURRENT_MAT_YEAR = 2026
 _PACE_YEARS = [_CURRENT_MAT_YEAR - 3, _CURRENT_MAT_YEAR - 2, _CURRENT_MAT_YEAR - 1, _CURRENT_MAT_YEAR]
 
+# Load full CSV (all rows, not just terminal decisions) — lightweight columns only
+_all_apps_df = pd.read_csv(
+    "lsdata.csv", skiprows=1, low_memory=False,
+    usecols=lambda c: c in {"school_name", "matriculating_year", "decision_at"},
+)
+_all_apps_df = _all_apps_df.dropna(subset=["school_name", "matriculating_year"])
+_all_apps_df["matriculating_year"] = pd.to_numeric(_all_apps_df["matriculating_year"], errors="coerce")
+_all_apps_df = _all_apps_df.dropna(subset=["matriculating_year"])
+_all_apps_df["matriculating_year"] = _all_apps_df["matriculating_year"].astype(int)
+_all_apps_df["decision_at"] = pd.to_datetime(_all_apps_df["decision_at"], errors="coerce")
+_all_apps_df["cycle_start"] = pd.to_datetime(
+    (_all_apps_df["matriculating_year"] - 1).astype(str) + "-09-01"
+)
+_all_apps_df["day_of_cycle_decision"] = (
+    _all_apps_df["decision_at"] - _all_apps_df["cycle_start"]
+).dt.days
 
-def _build_pace_for_subset(df_sub: pd.DataFrame) -> dict:
-    """Return {year: {total, curve}} for _PACE_YEARS."""
+
+def _build_pace_for_subset(decisions_sub: pd.DataFrame, all_apps_sub: pd.DataFrame) -> dict:
+    """Return {year: {total_apps, decisions_total, curve: [{day, count, frac}]}} for _PACE_YEARS.
+
+    decisions_sub  — terminal-decision rows (from _viz_df), for the numerator curve.
+    all_apps_sub   — ALL rows including pending (from _all_apps_df), for the denominator.
+    frac = cumulative_decisions_by_day / total_applicants_that_cycle.
+    """
     result = {}
     for mat_year in _PACE_YEARS:
-        sub = df_sub[df_sub["matriculating_year"] == mat_year]
-        valid = sub["day_of_cycle_decision"].dropna()
-        valid = valid[(valid >= 0) & (valid <= 400)]
-        if len(valid) < 5:
+        # Denominator: every applicant who reported to LSD.law this cycle
+        total_apps = int((all_apps_sub["matriculating_year"] == mat_year).sum())
+        if total_apps < 5:
             continue
-        sorted_days = np.sort(valid.values)
-        total = int(len(sorted_days))
+
+        # Numerator: terminal decisions with valid day_of_cycle_decision
+        dec_sub = decisions_sub[decisions_sub["matriculating_year"] == mat_year]
+        valid_days = dec_sub["day_of_cycle_decision"].dropna()
+        valid_days = valid_days[(valid_days >= 0) & (valid_days <= 400)]
+        sorted_days = np.sort(valid_days.values)
+        decisions_total = int(len(sorted_days))
+
         curve = [
-            {"day": int(d), "count": int(np.searchsorted(sorted_days, d, side="right"))}
+            {
+                "day": int(d),
+                "count": int(np.searchsorted(sorted_days, d, side="right")),
+                "frac": round(
+                    float(np.searchsorted(sorted_days, d, side="right")) / total_apps, 4
+                ),
+            }
             for d in range(0, 401, 3)
         ]
-        result[mat_year] = {"total": total, "curve": curve}
+        result[mat_year] = {
+            "total_apps": total_apps,
+            "decisions_total": decisions_total,
+            "curve": curve,
+        }
     return result
 
 
+print("  Building ALL-schools pace cache...")
 _pace_cache: dict = {}
-_pace_cache["ALL"] = _build_pace_for_subset(_viz_df)
+_pace_cache["ALL"] = _build_pace_for_subset(_viz_df, _all_apps_df)
+
+print("  Building per-school pace cache...")
+_all_apps_by_school = {s: g for s, g in _all_apps_df.groupby("school_name")}
 for _school, _grp in _viz_df.groupby("school_name"):
-    _pr = _build_pace_for_subset(_grp)
+    _all_grp = _all_apps_by_school.get(_school, pd.DataFrame())
+    _pr = _build_pace_for_subset(_grp, _all_grp)
     if _pr:
         _pace_cache[_school] = _pr
 print(f"  Cycle pace data ready ({len(_pace_cache)} entries).")
@@ -730,13 +774,13 @@ def viz_wait_times(school_name: str):
 
 @app.get("/api/cycle_pace")
 def cycle_pace(school_name: str = "ALL"):
-    """Compare current cycle's raw cumulative decision count to recent cycles.
+    """Compare what fraction of applicants have a decision by today vs prior cycles.
 
-    Returns raw count curves (not normalised fractions) so year-over-year
-    LSD.law growth is transparent.  Headline compares current cycle vs the
-    most recent complete cycle at the same day of the cycle, which is a more
-    apples-to-apples comparison than a 3-year average dominated by earlier,
-    smaller cohorts.
+    Uses frac = cumulative_decisions_by_day / total_applicants_that_cycle.
+    This controls for LSD.law user growth: if the platform doubles in size,
+    both numerator and denominator double, leaving the fraction unchanged.
+    A genuinely slow cycle shows up as a lower fraction than prior years at
+    the same day.
     """
     data = _pace_cache.get(school_name)
     if not data:
@@ -750,49 +794,56 @@ def cycle_pace(school_name: str = "ALL"):
     ))
 
     past_years = sorted([y for y in data if y < _CURRENT_MAT_YEAR])[-3:]
-    prior_year = past_years[-1] if past_years else None  # most recent complete cycle
+    prior_year = past_years[-1] if past_years else None
 
-    # Return raw count curves for every available year
+    # Build per-year response: expose frac curves + metadata
     cycles: dict = {}
     for year, year_data in data.items():
         cycles[str(year)] = {
-            "curve": [{"day": pt["day"], "count": pt["count"]} for pt in year_data["curve"]],
-            "raw_total": year_data["total"],
+            "curve": [
+                {"day": pt["day"], "frac": pt["frac"], "count": pt["count"]}
+                for pt in year_data["curve"]
+            ],
+            "total_apps": year_data["total_apps"],
+            "decisions_total": year_data["decisions_total"],
         }
 
-    def _count_at(year_key: str, day: int) -> int | None:
+    def _frac_at(year_key: str, day: int) -> float | None:
         if year_key not in cycles:
             return None
         pts = [p for p in cycles[year_key]["curve"] if p["day"] <= day]
-        return pts[-1]["count"] if pts else 0
+        return pts[-1]["frac"] if pts else 0.0
 
-    current_count = _count_at(str(_CURRENT_MAT_YEAR), today_day)
-    prior_count   = _count_at(str(prior_year), today_day) if prior_year else None
+    current_frac = _frac_at(str(_CURRENT_MAT_YEAR), today_day)
+    prior_frac   = _frac_at(str(prior_year), today_day) if prior_year else None
 
-    # Headline: % difference vs most recent prior cycle at the same day
-    pct_vs_prior_year: float | None = None
-    if current_count is not None and prior_count and prior_count > 0:
-        pct_vs_prior_year = round((current_count / prior_count - 1) * 100, 1)
+    # Primary headline: fraction difference vs prior year (ppt + relative %)
+    frac_diff_ppt: float | None = None       # percentage-point difference
+    pct_vs_prior_year: float | None = None   # relative % change
+    if current_frac is not None and prior_frac is not None and prior_frac > 0:
+        frac_diff_ppt     = round((current_frac - prior_frac) * 100, 1)
+        pct_vs_prior_year = round((current_frac / prior_frac - 1) * 100, 1)
 
-    # Also compute vs 3-year avg for reference (clearly labelled)
-    past_counts = [c for y in past_years if (c := _count_at(str(y), today_day)) is not None]
-    avg_past_count = round(float(np.mean(past_counts))) if past_counts else None
+    # 3-year average for reference
+    past_fracs = [f for y in past_years if (f := _frac_at(str(y), today_day)) is not None]
+    avg_past_frac = round(float(np.mean(past_fracs)), 4) if past_fracs else None
     pct_vs_3yr_avg: float | None = None
-    if current_count is not None and avg_past_count and avg_past_count > 0:
-        pct_vs_3yr_avg = round((current_count / avg_past_count - 1) * 100, 1)
+    if current_frac is not None and avg_past_frac and avg_past_frac > 0:
+        pct_vs_3yr_avg = round((current_frac / avg_past_frac - 1) * 100, 1)
 
     return {
         "today_day": today_day,
         "today_date": today.isoformat(),
         "cycles": cycles,
-        # Primary headline: vs most recent complete cycle
+        # Primary: fraction-based comparison vs most recent complete cycle
+        "current_frac": round(current_frac * 100, 1) if current_frac is not None else None,
+        "prior_frac": round(prior_frac * 100, 1) if prior_frac is not None else None,
+        "frac_diff_ppt": frac_diff_ppt,
         "pct_vs_prior_year": pct_vs_prior_year,
         "prior_year": prior_year,
-        "current_count": current_count,
-        "prior_count": prior_count,
-        # Secondary: vs 3-year average (affected by LSD.law growth)
+        # 3yr average reference
+        "avg_past_frac": round(avg_past_frac * 100, 1) if avg_past_frac else None,
         "pct_vs_3yr_avg": pct_vs_3yr_avg,
-        "avg_past_count": avg_past_count,
         "current_mat_year": _CURRENT_MAT_YEAR,
         "past_mat_years": past_years,
     }
