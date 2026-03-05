@@ -162,8 +162,80 @@ school_stats = df.groupby("school_name").agg(
 
 df = df.merge(school_stats, on="school_name", how="left")
 
-# --- B. Per-cycle school stats (accepted-only medians per year) ---
-print("  Computing per-cycle school stats...")
+# --- B. Per-cycle school stats (temporal: only decisions up to current_day) ---
+# This prevents look-ahead bias: during training, current_day = decision_day,
+# so cycle stats only reflect decisions that have already happened at that point.
+# At inference the user provides today's date, and the saved cycle_stats.json
+# (computed from ALL training data) is a reasonable approximation.
+print("  Computing temporal per-cycle school stats (no look-ahead)...")
+
+# B1. Build expanding-window stats for each (school, year) group
+_cycle_temporal = {}  # (school, year) -> {days, stats arrays}
+_cycle_stat_cols = [
+    "cycle_median_lsat", "cycle_median_gpa",
+    "cycle_25_lsat", "cycle_75_lsat",
+    "cycle_25_gpa", "cycle_75_gpa",
+    "cycle_accept_count",
+]
+
+_acc_df = df[df["result"] == "accepted"].dropna(subset=["day_of_cycle_decision"])
+for (school, year), grp in _acc_df.groupby(["school_name", "matriculating_year"]):
+    grp_sorted = grp.sort_values("day_of_cycle_decision")
+    days_arr = grp_sorted["day_of_cycle_decision"].values
+    lsats = grp_sorted["lsat"].values
+    gpas = grp_sorted["gpa"].values
+
+    unique_days = np.unique(days_arr)
+    sd, sml, smg, s25l, s75l, s25g, s75g, sc = [], [], [], [], [], [], [], []
+    for d in unique_days:
+        mask = days_arr <= d
+        n = mask.sum()
+        if n < 3:
+            continue
+        l, g = lsats[mask], gpas[mask]
+        sd.append(d)
+        sml.append(np.median(l))
+        smg.append(np.median(g))
+        s25l.append(np.percentile(l, 25))
+        s75l.append(np.percentile(l, 75))
+        s25g.append(np.percentile(g, 25))
+        s75g.append(np.percentile(g, 75))
+        sc.append(n)
+    if sd:
+        _cycle_temporal[(school, year)] = {
+            "days": np.array(sd),
+            "cycle_median_lsat": np.array(sml),
+            "cycle_median_gpa": np.array(smg),
+            "cycle_25_lsat": np.array(s25l),
+            "cycle_75_lsat": np.array(s75l),
+            "cycle_25_gpa": np.array(s25g),
+            "cycle_75_gpa": np.array(s75g),
+            "cycle_accept_count": np.array(sc),
+        }
+
+print(f"    Built temporal lookup for {len(_cycle_temporal)} (school, year) groups")
+
+# B2. For each row, look up stats at current_day via binary search
+for col in _cycle_stat_cols:
+    df[col] = np.nan
+
+for (school, year), group_idx in df.groupby(["school_name", "matriculating_year"]).groups.items():
+    key = (school, year)
+    if key not in _cycle_temporal:
+        continue
+    data = _cycle_temporal[key]
+    current_days = df.loc[group_idx, "day_of_cycle_decision"].values
+    valid_mask = ~np.isnan(current_days)
+    if not valid_mask.any():
+        continue
+    indices = np.searchsorted(data["days"], current_days[valid_mask], side="right") - 1
+    has_stats = indices >= 0
+    valid_idx = np.array(group_idx)[valid_mask][has_stats]
+    stat_idx = indices[has_stats]
+    for col in _cycle_stat_cols:
+        df.loc[valid_idx, col] = data[col][stat_idx]
+
+# B3. Also compute COMPLETE cycle stats for saving to cycle_stats.json (used at inference)
 cycle_stats = (
     df[df["result"] == "accepted"]
     .groupby(["school_name", "matriculating_year"])
@@ -178,7 +250,6 @@ cycle_stats = (
     )
     .reset_index()
 )
-df = df.merge(cycle_stats, on=["school_name", "matriculating_year"], how="left")
 
 # --- C. Recency-weighted school stats (exponential decay, half-life=2 years) ---
 print("  Computing recency-weighted school stats...")
