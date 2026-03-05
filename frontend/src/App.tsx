@@ -12,7 +12,6 @@ import {
 import {
   LsatGpaScatter,
   MedianDrift,
-  WaveHeatmap,
   ApplicantsLikeYou,
   WaitTimeDistribution,
   CyclePace,
@@ -54,11 +53,6 @@ interface PredictionResult {
 const INPUT_CLS =
   "nb-input";
 
-function dayToApproxDate(day: number, matYear: number): string {
-  const base = new Date(matYear - 1, 8, 1); // Sept 1
-  base.setDate(base.getDate() + day);
-  return base.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
 
 function ProbabilityBar({
   label,
@@ -365,17 +359,6 @@ function AdmissionTimeline({
               />
             )}
 
-            {/* Wave markers */}
-            {data.wave_markers.map((wm, i) => (
-              <ReferenceLine
-                key={i}
-                x={wm.day}
-                stroke="#6366f1"
-                strokeDasharray="2 4"
-                strokeWidth={1}
-                strokeOpacity={0.4}
-              />
-            ))}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -397,120 +380,10 @@ function AdmissionTimeline({
           Today
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-0 w-4 border-t-2 border-dashed border-indigo-600" />
-          Wave
-        </span>
-        <span className="flex items-center gap-1.5">
           <span className="inline-block h-0 w-4 border-t-2 border-dashed border-black" />
           Low Data
         </span>
       </div>
-    </div>
-  );
-}
-
-function WaveTimeline({
-  waveInfo,
-  matYear,
-}: {
-  waveInfo: PredictionResult["wave_info"];
-  matYear: number;
-}) {
-  if (!waveInfo) return null;
-
-  return (
-    <div className="nb-card">
-      <h2 className="mb-1 text-lg font-black">
-        Wave Analysis
-      </h2>
-      <p className="mb-4 text-xs font-medium text-neutral-700">
-        {waveInfo.total_waves} detected waves at this school
-      </p>
-
-      <div className="mb-3 flex gap-4 text-center text-xs">
-        <div className="flex-1 border-2 border-black bg-white p-2 shadow-[4px_4px_0_0_#000]">
-          <div className="text-lg font-black text-black">
-            {waveInfo.waves_passed}
-          </div>
-          <div className="font-medium text-neutral-700">Waves Passed</div>
-        </div>
-        <div className="flex-1 border-2 border-black bg-white p-2 shadow-[4px_4px_0_0_#000]">
-          <div className="text-lg font-black text-black">
-            {waveInfo.waves_remaining}
-          </div>
-          <div className="font-medium text-neutral-700">Waves Remaining</div>
-        </div>
-      </div>
-
-      {waveInfo.passed_waves.length > 0 && (
-        <div className="mb-3">
-          <div className="mb-1.5 text-xs font-black uppercase tracking-wider text-neutral-700">
-            Survived Waves
-          </div>
-          <div className="space-y-1">
-            {waveInfo.passed_waves.map((w, i) => {
-              const total = Math.max(w.count, 1);
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 border-2 border-black bg-white px-2 py-1 text-xs"
-                >
-                  <span className="min-w-[70px] font-medium text-neutral-700">
-                    {dayToApproxDate(w.center, matYear)}
-                  </span>
-                  <span className="font-medium text-neutral-700">{w.count} decisions</span>
-                  <div className="ml-auto flex gap-2">
-                    <span className="font-bold text-emerald-700">
-                      {Math.round((w.accepted / total) * 100)}% A
-                    </span>
-                    <span className="font-bold text-amber-700">
-                      {Math.round((w.waitlisted / total) * 100)}% WL
-                    </span>
-                    <span className="font-bold text-rose-700">
-                      {Math.round((w.rejected / total) * 100)}% R
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {waveInfo.upcoming_waves.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-xs font-black uppercase tracking-wider text-neutral-700">
-            Upcoming Waves
-          </div>
-          <div className="space-y-1">
-            {waveInfo.upcoming_waves.map((w, i) => {
-              const total = Math.max(w.count, 1);
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 border-2 border-black bg-indigo-50 px-2 py-1 text-xs"
-                >
-                  <span className="min-w-[70px] font-black text-indigo-700">
-                    ~{dayToApproxDate(w.center, matYear)}
-                  </span>
-                  <span className="font-medium text-neutral-700">{w.count} decisions</span>
-                  <div className="ml-auto flex gap-2">
-                    <span className="font-bold text-emerald-700">
-                      {Math.round((w.accepted / total) * 100)}% A
-                    </span>
-                    <span className="font-bold text-amber-700">
-                      {Math.round((w.waitlisted / total) * 100)}% WL
-                    </span>
-                    <span className="font-bold text-rose-700">
-                      {Math.round((w.rejected / total) * 100)}% R
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -618,8 +491,8 @@ function App() {
             Law School Admissions Calculator
           </h1>
           <p className="mt-3 max-w-2xl text-sm font-medium text-neutral-700">
-            Wave-aware LightGBM predictions with cycle-year features and
-            school-specific decision waves.
+            LightGBM predictions trained on 700K+ decisions with cycle-year
+            and timing features.
           </p>
         </div>
 
@@ -850,11 +723,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Wave Analysis */}
-                <WaveTimeline
-                  waveInfo={result.wave_info}
-                  matYear={matriculatingYear}
-                />
 
                 {/* School Context */}
                 <div className="nb-card">
@@ -924,9 +792,9 @@ function App() {
                   <br />
                   <br />
                   <span className="text-xs font-medium text-neutral-600">
-                    Set "Today's Date" to see how surviving
+                    Set "Today's Date" to see how your odds
                     <br />
-                    past decision waves affects your odds
+                    evolve as the cycle progresses
                   </span>
                 </p>
               </div>
@@ -955,10 +823,6 @@ function App() {
             </div>
             <div className="grid gap-6 lg:grid-cols-2">
               <MedianDrift schoolName={schoolName} />
-              <WaveHeatmap
-                schoolName={schoolName}
-                matYear={matriculatingYear}
-              />
             </div>
             <WaitTimeDistribution schoolName={schoolName} />
           </div>
@@ -987,7 +851,7 @@ function App() {
           >
             LSD.law
           </a>
-          . Model: LightGBM GBDT with wave-aware survival features, trained on
+          . Model: LightGBM GBDT with cycle-timing features, trained on
           700K+ decisions. For informational purposes only.
         </div>
       </div>
