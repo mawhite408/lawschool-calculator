@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: lawschool-calculator-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MODEL_DOWNLOAD_URL
+        sync: false   # set this manually in Render dashboard after uploading model to GitHub Releases
+    healthCheckPath: /api/schools

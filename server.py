@@ -5,10 +5,12 @@ Takes current_date as input to compute conditional probabilities
 given that the applicant has survived to this point without a decision.
 """
 
+import gzip
 import json
 import math
 import os
 import random
+import urllib.request
 from datetime import date, datetime
 from typing import Optional
 
@@ -28,7 +30,22 @@ from pydantic import BaseModel
 
 MODEL_DIR = "model_artifacts"
 
-model = lgb.Booster(model_file=os.path.join(MODEL_DIR, "lgbm_model.txt"))
+# In production (Render), the large model file may need to be downloaded.
+# Set MODEL_DOWNLOAD_URL env var to a direct download link (e.g. GitHub Release asset).
+_model_path = os.path.join(MODEL_DIR, "lgbm_model.txt")
+if not os.path.exists(_model_path):
+    _url = os.environ.get("MODEL_DOWNLOAD_URL")
+    if _url:
+        print(f"Downloading model from {_url} ...")
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        urllib.request.urlretrieve(_url, _model_path)
+        print("Model downloaded.")
+    else:
+        raise FileNotFoundError(
+            f"{_model_path} not found. Set MODEL_DOWNLOAD_URL env var or commit the model file."
+        )
+
+model = lgb.Booster(model_file=_model_path)
 school_encoder = joblib.load(os.path.join(MODEL_DIR, "school_encoder.joblib"))
 
 with open(os.path.join(MODEL_DIR, "school_stats.json")) as f:
@@ -564,153 +581,159 @@ def predict_timeline(req: PredictionRequest):
 
 
 # ─────────────────────────────────────────────
-# Precompute visualization data from CSV
+# Visualization caches — load precomputed or build from CSV
 # ─────────────────────────────────────────────
 
-print("Loading CSV for visualization endpoints...")
-_viz_df = pd.read_csv("lsdata.csv", skiprows=1, low_memory=False)
-_viz_df = _viz_df[_viz_df["result"].isin(["accepted", "waitlisted", "rejected"])].copy()
-_viz_df = _viz_df.dropna(subset=["lsat", "gpa"])
-for _col in ["sent_at", "complete_at", "decision_at"]:
-    _viz_df[_col] = pd.to_datetime(_viz_df[_col], errors="coerce")
-_viz_df["app_date"] = _viz_df["sent_at"].fillna(_viz_df["complete_at"])
-_viz_df["cycle_start"] = pd.to_datetime((_viz_df["matriculating_year"] - 1).astype(str) + "-09-01")
-_viz_df["day_of_cycle_decision"] = (_viz_df["decision_at"] - _viz_df["cycle_start"]).dt.days
-_viz_df["day_of_cycle_sent"] = (_viz_df["app_date"] - _viz_df["cycle_start"]).dt.days
-_viz_df["days_to_decision"] = (_viz_df["decision_at"] - _viz_df["app_date"]).dt.days
-
-# --- Pre-aggregate scatter data per school (all points, sample at request time) ---
-print("  Pre-aggregating scatter data...")
-_scatter_cache = {}
-for school_name, group in _viz_df.groupby("school_name"):
-    sub = group[["lsat", "gpa", "result", "matriculating_year"]].dropna()
-    _scatter_cache[school_name] = sub.to_dict(orient="records")
-
-# --- Pre-aggregate median drift per school ---
-print("  Pre-aggregating median drift...")
-_drift_cache = {}
-for school_name, group in _viz_df.groupby("school_name"):
-    acc = group[group["result"] == "accepted"]
-    yearly = acc.groupby("matriculating_year").agg(
-        median_lsat=("lsat", "median"),
-        median_gpa=("gpa", "median"),
-        p25_lsat=("lsat", lambda x: x.quantile(0.25)),
-        p75_lsat=("lsat", lambda x: x.quantile(0.75)),
-        p25_gpa=("gpa", lambda x: x.quantile(0.25)),
-        p75_gpa=("gpa", lambda x: x.quantile(0.75)),
-        count=("lsat", "count"),
-    ).reset_index()
-    yearly = yearly[yearly["count"] >= 10]
-    _drift_cache[school_name] = yearly.to_dict(orient="records")
-
-# --- Pre-aggregate wave heatmap data per school ---
-print("  Pre-aggregating wave heatmap data...")
-_heatmap_cache = {}
-for school_name, group in _viz_df.groupby("school_name"):
-    valid = group[group["day_of_cycle_decision"].between(0, 400)].copy()
-    if len(valid) < 20:
-        continue
-    # Bin into weeks (7-day buckets)
-    valid["week"] = (valid["day_of_cycle_decision"] // 7).astype(int)
-    weekly = valid.groupby("week").agg(
-        total=("result", "count"),
-        accepted=("result", lambda x: (x == "accepted").sum()),
-        waitlisted=("result", lambda x: (x == "waitlisted").sum()),
-        rejected=("result", lambda x: (x == "rejected").sum()),
-    ).reset_index()
-    weekly["day_start"] = weekly["week"] * 7
-    _heatmap_cache[school_name] = weekly[["day_start", "total", "accepted", "waitlisted", "rejected"]].to_dict(orient="records")
-
-# --- Pre-aggregate wait time distributions per school ---
-print("  Pre-aggregating wait time distributions...")
-_waittime_cache = {}
-for school_name, group in _viz_df.groupby("school_name"):
-    valid = group[group["days_to_decision"].between(1, 365)].copy()
-    if len(valid) < 20:
-        continue
-    # Bin into 2-week (14-day) buckets by outcome
-    valid["bucket"] = ((valid["days_to_decision"] // 14) * 14).astype(int)
-    buckets = valid.groupby(["bucket", "result"]).size().reset_index(name="count")
-    _waittime_cache[school_name] = buckets.to_dict(orient="records")
-
-print("  Visualization data ready.")
-
-# --- Pre-aggregate cycle pace data (for "Is This Cycle Slow?" view) ---
-# We need ALL rows (including pending/no-decision-yet) as the denominator
-# so that "fraction with decision" naturally controls for LSD.law user growth.
-print("  Pre-aggregating cycle pace data...")
 _CURRENT_MAT_YEAR = 2026
 _PACE_YEARS = [_CURRENT_MAT_YEAR - 3, _CURRENT_MAT_YEAR - 2, _CURRENT_MAT_YEAR - 1, _CURRENT_MAT_YEAR]
+_CACHE_DIR = "precomputed_caches"
+_CACHE_NAMES = ["scatter", "drift", "heatmap", "waittime", "pace"]
 
-# Load full CSV (all rows, not just terminal decisions) — lightweight columns only
-_all_apps_df = pd.read_csv(
-    "lsdata.csv", skiprows=1, low_memory=False,
-    usecols=lambda c: c in {"school_name", "matriculating_year", "decision_at"},
+
+def _load_gz_cache(name: str) -> dict:
+    path = os.path.join(_CACHE_DIR, f"{name}.json.gz")
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        return json.load(f)
+
+
+_has_precomputed = all(
+    os.path.exists(os.path.join(_CACHE_DIR, f"{n}.json.gz")) for n in _CACHE_NAMES
 )
-_all_apps_df = _all_apps_df.dropna(subset=["school_name", "matriculating_year"])
-_all_apps_df["matriculating_year"] = pd.to_numeric(_all_apps_df["matriculating_year"], errors="coerce")
-_all_apps_df = _all_apps_df.dropna(subset=["matriculating_year"])
-_all_apps_df["matriculating_year"] = _all_apps_df["matriculating_year"].astype(int)
-_all_apps_df["decision_at"] = pd.to_datetime(_all_apps_df["decision_at"], errors="coerce")
-_all_apps_df["cycle_start"] = pd.to_datetime(
-    (_all_apps_df["matriculating_year"] - 1).astype(str) + "-09-01"
-)
-_all_apps_df["day_of_cycle_decision"] = (
-    _all_apps_df["decision_at"] - _all_apps_df["cycle_start"]
-).dt.days
 
+if _has_precomputed:
+    print("Loading precomputed viz caches...")
+    _scatter_cache = _load_gz_cache("scatter")
+    _drift_cache   = _load_gz_cache("drift")
+    _heatmap_cache = _load_gz_cache("heatmap")
+    _waittime_cache = _load_gz_cache("waittime")
+    _pace_cache    = _load_gz_cache("pace")
+    # Pace cache keys come back as strings from JSON; normalise int keys
+    _pace_cache = {
+        school: {int(yr): v for yr, v in yr_data.items()}
+        for school, yr_data in _pace_cache.items()
+    }
+    print(f"  Precomputed caches loaded ({len(_scatter_cache)} schools).")
+else:
+    print("Precomputed caches not found — building from lsdata.csv...")
+    print("Loading CSV for visualization endpoints...")
+    _viz_df = pd.read_csv("lsdata.csv", skiprows=1, low_memory=False)
+    _viz_df = _viz_df[_viz_df["result"].isin(["accepted", "waitlisted", "rejected"])].copy()
+    _viz_df = _viz_df.dropna(subset=["lsat", "gpa"])
+    for _col in ["sent_at", "complete_at", "decision_at"]:
+        _viz_df[_col] = pd.to_datetime(_viz_df[_col], errors="coerce")
+    _viz_df["app_date"] = _viz_df["sent_at"].fillna(_viz_df["complete_at"])
+    _viz_df["cycle_start"] = pd.to_datetime((_viz_df["matriculating_year"] - 1).astype(str) + "-09-01")
+    _viz_df["day_of_cycle_decision"] = (_viz_df["decision_at"] - _viz_df["cycle_start"]).dt.days
+    _viz_df["day_of_cycle_sent"] = (_viz_df["app_date"] - _viz_df["cycle_start"]).dt.days
+    _viz_df["days_to_decision"] = (_viz_df["decision_at"] - _viz_df["app_date"]).dt.days
 
-def _build_pace_for_subset(decisions_sub: pd.DataFrame, all_apps_sub: pd.DataFrame) -> dict:
-    """Return {year: {total_apps, decisions_total, curve: [{day, count, frac}]}} for _PACE_YEARS.
+    print("  Pre-aggregating scatter data...")
+    _scatter_cache = {}
+    for school_name, group in _viz_df.groupby("school_name"):
+        sub = group[["lsat", "gpa", "result", "matriculating_year"]].dropna()
+        _scatter_cache[school_name] = sub.to_dict(orient="records")
 
-    decisions_sub  — terminal-decision rows (from _viz_df), for the numerator curve.
-    all_apps_sub   — ALL rows including pending (from _all_apps_df), for the denominator.
-    frac = cumulative_decisions_by_day / total_applicants_that_cycle.
-    """
-    result = {}
-    for mat_year in _PACE_YEARS:
-        # Denominator: every applicant who reported to LSD.law this cycle
-        total_apps = int((all_apps_sub["matriculating_year"] == mat_year).sum())
-        if total_apps < 5:
+    print("  Pre-aggregating median drift...")
+    _drift_cache = {}
+    for school_name, group in _viz_df.groupby("school_name"):
+        acc = group[group["result"] == "accepted"]
+        yearly = acc.groupby("matriculating_year").agg(
+            median_lsat=("lsat", "median"),
+            median_gpa=("gpa", "median"),
+            p25_lsat=("lsat", lambda x: x.quantile(0.25)),
+            p75_lsat=("lsat", lambda x: x.quantile(0.75)),
+            p25_gpa=("gpa", lambda x: x.quantile(0.25)),
+            p75_gpa=("gpa", lambda x: x.quantile(0.75)),
+            count=("lsat", "count"),
+        ).reset_index()
+        yearly = yearly[yearly["count"] >= 10]
+        _drift_cache[school_name] = yearly.to_dict(orient="records")
+
+    print("  Pre-aggregating wave heatmap data...")
+    _heatmap_cache = {}
+    for school_name, group in _viz_df.groupby("school_name"):
+        valid = group[group["day_of_cycle_decision"].between(0, 400)].copy()
+        if len(valid) < 20:
             continue
+        valid["week"] = (valid["day_of_cycle_decision"] // 7).astype(int)
+        weekly = valid.groupby("week").agg(
+            total=("result", "count"),
+            accepted=("result", lambda x: (x == "accepted").sum()),
+            waitlisted=("result", lambda x: (x == "waitlisted").sum()),
+            rejected=("result", lambda x: (x == "rejected").sum()),
+        ).reset_index()
+        weekly["day_start"] = weekly["week"] * 7
+        _heatmap_cache[school_name] = weekly[["day_start", "total", "accepted", "waitlisted", "rejected"]].to_dict(orient="records")
 
-        # Numerator: terminal decisions with valid day_of_cycle_decision
-        dec_sub = decisions_sub[decisions_sub["matriculating_year"] == mat_year]
-        valid_days = dec_sub["day_of_cycle_decision"].dropna()
-        valid_days = valid_days[(valid_days >= 0) & (valid_days <= 400)]
-        sorted_days = np.sort(valid_days.values)
-        decisions_total = int(len(sorted_days))
+    print("  Pre-aggregating wait time distributions...")
+    _waittime_cache = {}
+    for school_name, group in _viz_df.groupby("school_name"):
+        valid = group[group["days_to_decision"].between(1, 365)].copy()
+        if len(valid) < 20:
+            continue
+        valid["bucket"] = ((valid["days_to_decision"] // 14) * 14).astype(int)
+        buckets = valid.groupby(["bucket", "result"]).size().reset_index(name="count")
+        _waittime_cache[school_name] = buckets.to_dict(orient="records")
 
-        curve = [
-            {
-                "day": int(d),
-                "count": int(np.searchsorted(sorted_days, d, side="right")),
-                "frac": round(
-                    float(np.searchsorted(sorted_days, d, side="right")) / total_apps, 4
-                ),
+    print("  Visualization data ready.")
+    print("  Pre-aggregating cycle pace data...")
+
+    _all_apps_df = pd.read_csv(
+        "lsdata.csv", skiprows=1, low_memory=False,
+        usecols=lambda c: c in {"school_name", "matriculating_year", "decision_at"},
+    )
+    _all_apps_df = _all_apps_df.dropna(subset=["school_name", "matriculating_year"])
+    _all_apps_df["matriculating_year"] = pd.to_numeric(_all_apps_df["matriculating_year"], errors="coerce")
+    _all_apps_df = _all_apps_df.dropna(subset=["matriculating_year"])
+    _all_apps_df["matriculating_year"] = _all_apps_df["matriculating_year"].astype(int)
+    _all_apps_df["decision_at"] = pd.to_datetime(_all_apps_df["decision_at"], errors="coerce")
+    _all_apps_df["cycle_start"] = pd.to_datetime(
+        (_all_apps_df["matriculating_year"] - 1).astype(str) + "-09-01"
+    )
+    _all_apps_df["day_of_cycle_decision"] = (
+        _all_apps_df["decision_at"] - _all_apps_df["cycle_start"]
+    ).dt.days
+
+    def _build_pace_for_subset(decisions_sub: pd.DataFrame, all_apps_sub: pd.DataFrame) -> dict:
+        result = {}
+        for mat_year in _PACE_YEARS:
+            total_apps = int((all_apps_sub["matriculating_year"] == mat_year).sum())
+            if total_apps < 5:
+                continue
+            dec_sub = decisions_sub[decisions_sub["matriculating_year"] == mat_year]
+            valid_days = dec_sub["day_of_cycle_decision"].dropna()
+            valid_days = valid_days[(valid_days >= 0) & (valid_days <= 400)]
+            sorted_days = np.sort(valid_days.values)
+            decisions_total = int(len(sorted_days))
+            curve = [
+                {
+                    "day": int(d),
+                    "count": int(np.searchsorted(sorted_days, d, side="right")),
+                    "frac": round(
+                        float(np.searchsorted(sorted_days, d, side="right")) / total_apps, 4
+                    ),
+                }
+                for d in range(0, 401, 3)
+            ]
+            result[mat_year] = {
+                "total_apps": total_apps,
+                "decisions_total": decisions_total,
+                "curve": curve,
             }
-            for d in range(0, 401, 3)
-        ]
-        result[mat_year] = {
-            "total_apps": total_apps,
-            "decisions_total": decisions_total,
-            "curve": curve,
-        }
-    return result
+        return result
 
+    print("  Building ALL-schools pace cache...")
+    _pace_cache: dict = {}
+    _pace_cache["ALL"] = _build_pace_for_subset(_viz_df, _all_apps_df)
 
-print("  Building ALL-schools pace cache...")
-_pace_cache: dict = {}
-_pace_cache["ALL"] = _build_pace_for_subset(_viz_df, _all_apps_df)
-
-print("  Building per-school pace cache...")
-_all_apps_by_school = {s: g for s, g in _all_apps_df.groupby("school_name")}
-for _school, _grp in _viz_df.groupby("school_name"):
-    _all_grp = _all_apps_by_school.get(_school, pd.DataFrame())
-    _pr = _build_pace_for_subset(_grp, _all_grp)
-    if _pr:
-        _pace_cache[_school] = _pr
-print(f"  Cycle pace data ready ({len(_pace_cache)} entries).")
+    print("  Building per-school pace cache...")
+    _all_apps_by_school = {s: g for s, g in _all_apps_df.groupby("school_name")}
+    for _school, _grp in _viz_df.groupby("school_name"):
+        _all_grp = _all_apps_by_school.get(_school, pd.DataFrame())
+        _pr = _build_pace_for_subset(_grp, _all_grp)
+        if _pr:
+            _pace_cache[_school] = _pr
+    print(f"  Cycle pace data ready ({len(_pace_cache)} entries).")
 
 
 @app.get("/api/viz/scatter/{school_name:path}")

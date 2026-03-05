@@ -1,0 +1,15 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Set VITE_API_BASE to your Render backend URL in the Netlify dashboard
+  # after deploying the backend:
+  #   Site → Environment Variables → VITE_API_BASE = https://your-app.onrender.com
+  # Then trigger a redeploy. The frontend reads this at build time.
+
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
