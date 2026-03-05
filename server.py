@@ -407,17 +407,19 @@ def get_school_waves(school_name: str):
     return {"school_name": school_name, "waves": waves}
 
 
-BLEND_THRESHOLD = 0.05  # fully trust model once 5% of cycle decisions are in
-
-
 def _anchored_proba(req) -> np.ndarray:
-    """Return base-rate-anchored probability vector for a prediction request.
+    """Return cum_frac-weighted probability vector for a prediction request.
 
-    When very few cycle decisions have been made (pre-wave), the raw model is
-    poorly calibrated and can produce wildly optimistic/pessimistic odds.  We
-    blend the raw prediction toward a neutral 'base-rate' prediction computed
-    at the sent_date (no temporal signal) weighted by the fraction of the
-    cycle's decisions that have been made so far.
+    The raw model answers: "if you got a decision TODAY, what would it be?"
+    But early in the cycle, the chance of getting a decision at all is tiny,
+    and the few early decisions skew heavily toward accepts.  We blend:
+
+        P = cum_frac * P(outcome | decision by now)      [raw model]
+          + (1 - cum_frac) * P(outcome | decision later) [end-of-cycle model]
+
+    cum_frac = fraction of this school's decisions typically made by current_day.
+    The end-of-cycle prediction (day 365) gives a stats-anchored baseline that
+    isn't inflated by early-cycle accept skew.
     """
     proba = model.predict(build_features(req))[0]
 
@@ -430,15 +432,16 @@ def _anchored_proba(req) -> np.ndarray:
         current_day = 0
     cum_frac = interpolate_cum_curve(school_cum_curve, current_day)
 
-    weight = min(cum_frac / BLEND_THRESHOLD, 1.0)
-    if weight >= 1.0:
-        return proba  # no blending needed
+    if cum_frac >= 0.99:
+        return proba  # late enough that virtually all decisions are in
 
-    # Base-rate: model at sent_date with no temporal/wave signal
-    base_req = req.model_copy()
-    base_req.current_date = req.sent_date if req.sent_date else cycle_start.strftime("%Y-%m-%d")
-    p_base = model.predict(build_features(base_req))[0]
-    return (1.0 - weight) * p_base + weight * proba
+    # End-of-cycle prediction: what happens if we wait until the cycle is over
+    eoc_req = req.model_copy()
+    eoc_date = cycle_start + pd.Timedelta(days=365)
+    eoc_req.current_date = eoc_date.strftime("%Y-%m-%d")
+    p_eoc = model.predict(build_features(eoc_req))[0]
+
+    return cum_frac * proba + (1.0 - cum_frac) * p_eoc
 
 
 @app.post("/api/predict")
@@ -523,15 +526,16 @@ def predict_timeline(req: PredictionRequest):
             days_to_eval.append(actual_current_day)
             days_to_eval.sort()
 
-        # Preload cumulative curve for confidence indicator
+        # Preload cumulative curve for blending
         school_cum_curve = cum_curves.get(req.school_name, {})
 
-        # Base-rate anchor: run model at sent_date with no temporal/wave signal.
-        # Pre-wave timeline predictions are blended toward this so the chart
-        # can't spike to unrealistic odds before any decisions are made.
-        base_req = req.model_copy()
-        base_req.current_date = req.sent_date if req.sent_date else cycle_start.strftime("%Y-%m-%d")
-        p_base = model.predict(build_features(base_req))[0]
+        # End-of-cycle prediction: stats-anchored baseline without early-cycle
+        # accept skew.  This is what the model predicts if we wait until all
+        # decisions are in.
+        eoc_req = req.model_copy()
+        eoc_date = cycle_start + pd.Timedelta(days=365)
+        eoc_req.current_date = eoc_date.strftime("%Y-%m-%d")
+        p_eoc = model.predict(build_features(eoc_req))[0]
 
         # Build feature vectors for all days at once
         for day in days_to_eval:
@@ -543,13 +547,12 @@ def predict_timeline(req: PredictionRequest):
             X = build_features(modified)
             proba = model.predict(X)[0]
 
-            # Cumulative decision fraction = confidence proxy
+            # Cumulative decision fraction = weight for blending
             cum_frac = interpolate_cum_curve(school_cum_curve, int(day))
 
-            # Blend toward base rate when data is sparse (pre-wave region).
-            # weight=0 → pure base rate; weight=1 → pure model prediction.
-            weight = min(cum_frac / BLEND_THRESHOLD, 1.0)
-            p_blended = (1.0 - weight) * p_base + weight * proba
+            # Blend: cum_frac weight on survival-conditional prediction,
+            # (1 - cum_frac) weight on end-of-cycle prediction.
+            p_blended = cum_frac * proba + (1.0 - cum_frac) * p_eoc
 
             timeline.append({
                 "day": int(day),
