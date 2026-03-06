@@ -378,42 +378,32 @@ interface SimilarData {
   rejected: number;
 }
 
-export function ApplicantsLikeYou({
-  schoolName,
-  lsat,
-  gpa,
+interface SimilarCycleData {
+  total: number;
+  accepted: number;
+  waitlisted: number;
+  rejected: number;
+  pending: number;
+  cycle_year?: number;
+}
+
+const PENDING_COLOR = "#a78bfa"; // violet-400
+
+function SimilarPieCard({
+  title,
+  subtitle,
+  pieData,
+  total,
 }: {
-  schoolName: string;
-  lsat: number;
-  gpa: number;
+  title: string;
+  subtitle: string;
+  pieData: { name: string; value: number; fill: string }[];
+  total: number;
 }) {
-  const [data, setData] = useState<SimilarData | null>(null);
-
-  useEffect(() => {
-    if (!schoolName) return;
-    fetch(
-      `${API_BASE}/api/viz/similar_applicants/${encodeURIComponent(schoolName)}?lsat=${lsat}&gpa=${gpa}`
-    )
-      .then((r) => r.json())
-      .then((d) => setData(d));
-  }, [schoolName, lsat, gpa]);
-
-  if (!schoolName || !data || data.total === 0) return null;
-
-  const pieData = [
-    { name: "Accepted", value: data.accepted, fill: COLORS.accepted },
-    { name: "Waitlisted", value: data.waitlisted, fill: COLORS.waitlisted },
-    { name: "Rejected", value: data.rejected, fill: COLORS.rejected },
-  ];
-
   return (
     <div className="nb-card">
-      <h2 className="mb-1 text-lg font-black">
-        Applicants Like You
-      </h2>
-      <p className="mb-3 text-xs font-medium text-neutral-700">
-        Historical outcomes for LSAT {lsat}±2 / GPA {gpa.toFixed(1)}±0.1 · {data.total} applicants
-      </p>
+      <h2 className="mb-1 text-lg font-black">{title}</h2>
+      <p className="mb-3 text-xs font-medium text-neutral-700">{subtitle}</p>
       <div className="flex items-center gap-4">
         <div className="h-36 w-36 flex-shrink-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -438,7 +428,7 @@ export function ApplicantsLikeYou({
                   const d = payload[0];
                   return (
                     <div className="border-2 border-black bg-white px-2 py-1 text-xs shadow-[3px_3px_0_0_#000]">
-                      {d.name}: {d.value} ({data.total > 0 ? Math.round(((d.value as number) / data.total) * 100) : 0}%)
+                      {d.name}: {d.value} ({total > 0 ? Math.round(((d.value as number) / total) * 100) : 0}%)
                     </div>
                   );
                 }}
@@ -448,7 +438,7 @@ export function ApplicantsLikeYou({
         </div>
         <div className="flex-1 space-y-2">
           {pieData.map((entry) => {
-            const pct = data.total > 0 ? Math.round((entry.value / data.total) * 100) : 0;
+            const pct = total > 0 ? Math.round((entry.value / total) * 100) : 0;
             return (
               <div key={entry.name} className="flex items-center gap-2">
                 <div className="h-2 flex-1 border-2 border-black bg-white overflow-hidden">
@@ -465,6 +455,75 @@ export function ApplicantsLikeYou({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+export function ApplicantsLikeYou({
+  schoolName,
+  lsat,
+  gpa,
+}: {
+  schoolName: string;
+  lsat: number;
+  gpa: number;
+}) {
+  const [data, setData] = useState<SimilarData | null>(null);
+  const [cycleData, setCycleData] = useState<SimilarCycleData | null>(null);
+
+  useEffect(() => {
+    if (!schoolName) return;
+    const base = `${API_BASE}/api/viz/similar_applicants`;
+    const params = `?lsat=${lsat}&gpa=${gpa}`;
+    fetch(`${base}/${encodeURIComponent(schoolName)}${params}`)
+      .then((r) => r.json())
+      .then((d) => setData(d));
+    fetch(`${base}_cycle/${encodeURIComponent(schoolName)}${params}`)
+      .then((r) => r.json())
+      .then((d: SimilarCycleData) => setCycleData(d));
+  }, [schoolName, lsat, gpa]);
+
+  if (!schoolName) return null;
+  const hasHistorical = data && data.total > 0;
+  const hasCycle = cycleData && cycleData.total > 0;
+  if (!hasHistorical && !hasCycle) return null;
+
+  const historicalPie = hasHistorical
+    ? [
+        { name: "Accepted", value: data.accepted, fill: COLORS.accepted },
+        { name: "Waitlisted", value: data.waitlisted, fill: COLORS.waitlisted },
+        { name: "Rejected", value: data.rejected, fill: COLORS.rejected },
+      ]
+    : [];
+
+  const cycleYear = cycleData?.cycle_year ?? 2026;
+  const cyclePie = hasCycle
+    ? [
+        { name: "Accepted", value: cycleData.accepted, fill: COLORS.accepted },
+        { name: "Waitlisted", value: cycleData.waitlisted, fill: COLORS.waitlisted },
+        { name: "Rejected", value: cycleData.rejected, fill: COLORS.rejected },
+        { name: "Pending", value: cycleData.pending, fill: PENDING_COLOR },
+      ]
+    : [];
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      {hasHistorical && (
+        <SimilarPieCard
+          title="Applicants Like You — Historical"
+          subtitle={`All cycles · LSAT ${lsat}±2 / GPA ${gpa.toFixed(1)}±0.1 · ${data.total} applicants`}
+          pieData={historicalPie}
+          total={data.total}
+        />
+      )}
+      {hasCycle && (
+        <SimilarPieCard
+          title={`Applicants Like You — ${cycleYear} Cycle`}
+          subtitle={`This cycle · LSAT ${lsat}±2 / GPA ${gpa.toFixed(1)}±0.1 · ${cycleData.total} applicants`}
+          pieData={cyclePie}
+          total={cycleData.total}
+        />
+      )}
     </div>
   );
 }

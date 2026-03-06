@@ -590,7 +590,7 @@ def predict_timeline(req: PredictionRequest):
 _CURRENT_MAT_YEAR = 2026
 _PACE_YEARS = [_CURRENT_MAT_YEAR - 3, _CURRENT_MAT_YEAR - 2, _CURRENT_MAT_YEAR - 1, _CURRENT_MAT_YEAR]
 _CACHE_DIR = "precomputed_caches"
-_CACHE_NAMES = ["scatter", "drift", "heatmap", "waittime", "pace"]
+_CACHE_NAMES = ["scatter", "drift", "heatmap", "waittime", "pace", "current_cycle"]
 
 
 def _load_gz_cache(name: str) -> dict:
@@ -610,6 +610,7 @@ if _has_precomputed:
     _heatmap_cache = _load_gz_cache("heatmap")
     _waittime_cache = _load_gz_cache("waittime")
     _pace_cache    = _load_gz_cache("pace")
+    _current_cycle_cache = _load_gz_cache("current_cycle")
     # Pace cache keys come back as strings from JSON; normalise int keys
     _pace_cache = {
         school: {int(yr): v for yr, v in yr_data.items()}
@@ -738,6 +739,20 @@ else:
             _pace_cache[_school] = _pr
     print(f"  Cycle pace data ready ({len(_pace_cache)} entries).")
 
+    print("  Building current-cycle applicants cache...")
+    _cycle_df = pd.read_csv("lsdata.csv", skiprows=1, low_memory=False,
+        usecols=lambda c: c in {"school_name", "matriculating_year", "lsat", "gpa", "result"})
+    _cycle_df = _cycle_df[_cycle_df["matriculating_year"] == _CURRENT_MAT_YEAR].copy()
+    _cycle_df = _cycle_df.dropna(subset=["lsat", "gpa", "school_name"])
+    _cycle_df["result"] = _cycle_df["result"].fillna("pending")
+    _cycle_df.loc[~_cycle_df["result"].isin(["accepted", "waitlisted", "rejected", "pending"]), "result"] = "pending"
+    _current_cycle_cache = {}
+    for _school, _grp in _cycle_df.groupby("school_name"):
+        _sub = _grp[["lsat", "gpa", "result"]].copy()
+        _sub["lsat"] = _sub["lsat"].astype(int)
+        _sub["gpa"] = _sub["gpa"].round(2)
+        _current_cycle_cache[_school] = _sub.to_dict(orient="records")
+
 
 @app.get("/api/viz/scatter/{school_name:path}")
 def viz_scatter(school_name: str, year: Optional[int] = None):
@@ -788,6 +803,31 @@ def viz_similar_applicants(school_name: str, lsat: int, gpa: float, lsat_range: 
         "waitlisted": outcomes["waitlisted"],
         "rejected": outcomes["rejected"],
         "applicants": similar[:50],  # Cap for response size
+    }
+
+
+@app.get("/api/viz/similar_applicants_cycle/{school_name:path}")
+def viz_similar_applicants_cycle(school_name: str, lsat: int, gpa: float, lsat_range: int = 2, gpa_range: float = 0.1):
+    """Return outcome distribution for current-cycle applicants with similar stats, including pending."""
+    points = _current_cycle_cache.get(school_name, [])
+    similar = [
+        p for p in points
+        if abs(p["lsat"] - lsat) <= lsat_range and abs(p["gpa"] - gpa) <= gpa_range
+    ]
+    total = len(similar)
+    if total == 0:
+        return {"school_name": school_name, "total": 0, "accepted": 0, "waitlisted": 0, "rejected": 0, "pending": 0}
+    outcomes = {"accepted": 0, "waitlisted": 0, "rejected": 0, "pending": 0}
+    for p in similar:
+        outcomes[p["result"]] = outcomes.get(p["result"], 0) + 1
+    return {
+        "school_name": school_name,
+        "total": total,
+        "accepted": outcomes["accepted"],
+        "waitlisted": outcomes["waitlisted"],
+        "rejected": outcomes["rejected"],
+        "pending": outcomes["pending"],
+        "cycle_year": _CURRENT_MAT_YEAR,
     }
 
 

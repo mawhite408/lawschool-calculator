@@ -131,6 +131,25 @@ for school_name, group in _viz_df.groupby("school_name"):
 save_cache("waittime", _waittime_cache)
 
 # ─────────────────────────────────────────────
+# Current-cycle applicants cache (includes pending)
+# ─────────────────────────────────────────────
+print("Computing current_cycle cache (includes pending applicants)...")
+_cycle_df = pd.read_csv("lsdata.csv", skiprows=1, low_memory=False,
+    usecols=lambda c: c in {"school_name", "matriculating_year", "lsat", "gpa", "result"})
+_cycle_df = _cycle_df[_cycle_df["matriculating_year"] == _CURRENT_MAT_YEAR].copy()
+_cycle_df = _cycle_df.dropna(subset=["lsat", "gpa", "school_name"])
+_cycle_df["result"] = _cycle_df["result"].fillna("pending")
+# Normalize results: anything not accepted/waitlisted/rejected/pending → pending
+_cycle_df.loc[~_cycle_df["result"].isin(["accepted", "waitlisted", "rejected", "pending"]), "result"] = "pending"
+_current_cycle_cache = {}
+for school_name, group in _cycle_df.groupby("school_name"):
+    sub = group[["lsat", "gpa", "result"]].copy()
+    sub["lsat"] = sub["lsat"].astype(int)
+    sub["gpa"] = sub["gpa"].round(2)
+    _current_cycle_cache[school_name] = sub.to_dict(orient="records")
+save_cache("current_cycle", _current_cycle_cache)
+
+# ─────────────────────────────────────────────
 # Pace cache
 # ─────────────────────────────────────────────
 print("Computing pace cache...")
