@@ -824,7 +824,14 @@ function App() {
             <div className="grid gap-6 lg:grid-cols-2">
               <MedianDrift schoolName={schoolName} />
             </div>
-            <WaitTimeDistribution schoolName={schoolName} />
+            <WaitTimeDistribution
+              schoolName={schoolName}
+              daysWaiting={
+                sentDate && currentDate
+                  ? Math.max(0, Math.round((new Date(currentDate).getTime() - new Date(sentDate).getTime()) / 86400000))
+                  : undefined
+              }
+            />
           </div>
         )}
 

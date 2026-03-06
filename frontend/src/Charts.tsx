@@ -477,7 +477,7 @@ interface WaitBucket {
   count: number;
 }
 
-export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
+export function WaitTimeDistribution({ schoolName, daysWaiting }: { schoolName: string; daysWaiting?: number }) {
   const [raw, setRaw] = useState<WaitBucket[]>([]);
 
   useEffect(() => {
@@ -541,6 +541,15 @@ export function WaitTimeDistribution({ schoolName }: { schoolName: string }) {
                 );
               }}
             />
+            {daysWaiting != null && (
+              <ReferenceLine
+                x={Math.floor(daysWaiting / 14) * 14}
+                stroke={COLORS.you}
+                strokeDasharray="4 3"
+                strokeWidth={2}
+                label={{ value: `You: ${daysWaiting}d`, position: "insideTopRight", fontSize: 9, fill: COLORS.you, fontWeight: 700 }}
+              />
+            )}
             <Bar dataKey="accepted" stackId="a" fill={COLORS.accepted} fillOpacity={0.8} radius={[0, 0, 0, 0]} />
             <Bar dataKey="waitlisted" stackId="a" fill={COLORS.waitlisted} fillOpacity={0.8} />
             <Bar dataKey="rejected" stackId="a" fill={COLORS.rejected} fillOpacity={0.8} radius={[2, 2, 0, 0]} />
@@ -752,6 +761,15 @@ export function CyclePace({ schoolList }: { schoolList: string[] }) {
                     strokeDasharray="4 3"
                     strokeWidth={2}
                     label={{ value: "Today", position: "insideTopRight", fontSize: 9, fill: "#0a0a0a", fontWeight: 700 }}
+                  />
+                )}
+                {data?.current_frac != null && (
+                  <ReferenceLine
+                    y={data.current_frac}
+                    stroke={CYCLE_COLORS.current}
+                    strokeDasharray="4 3"
+                    strokeWidth={1.5}
+                    label={{ value: `${data.current_frac}% now`, position: "insideTopLeft", fontSize: 9, fill: CYCLE_COLORS.current, fontWeight: 700 }}
                   />
                 )}
                 {Object.keys(yearColorMap)
