@@ -727,7 +727,7 @@ function App() {
                 {/* School Context */}
                 <div className="nb-card">
                   <h2 className="mb-4 text-lg font-black">
-                    School Context
+                    Based on lsd.law data, not school reporting
                   </h2>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between font-medium text-neutral-700">
