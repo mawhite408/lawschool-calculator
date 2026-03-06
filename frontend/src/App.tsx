@@ -808,19 +808,17 @@ function App() {
             <h2 className="text-center text-xl font-black">
               School Analytics
             </h2>
-            <div className="grid gap-6 lg:grid-cols-2">
-              <LsatGpaScatter
-                schoolName={schoolName}
-                userLsat={lsat}
-                userGpa={gpa}
-                year={matriculatingYear}
-              />
-              <ApplicantsLikeYou
-                schoolName={schoolName}
-                lsat={lsat}
-                gpa={gpa}
-              />
-            </div>
+            <LsatGpaScatter
+              schoolName={schoolName}
+              userLsat={lsat}
+              userGpa={gpa}
+              year={matriculatingYear}
+            />
+            <ApplicantsLikeYou
+              schoolName={schoolName}
+              lsat={lsat}
+              gpa={gpa}
+            />
             <div className="grid gap-6 lg:grid-cols-2">
               <MedianDrift schoolName={schoolName} />
             </div>
