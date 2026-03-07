@@ -1,1 +1,50 @@
 @import "tailwindcss";
+
+:root {
+  --nb-bg: #f7f4ee;
+  --nb-ink: #0a0a0a;
+  --nb-accent: #4f46e5;
+  --nb-accent-2: #f59e0b;
+  --nb-accent-3: #10b981;
+  --nb-accent-4: #f43f5e;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--nb-bg);
+  color: var(--nb-ink);
+}
+
+@layer components {
+  .nb-card {
+    @apply border-2 border-black bg-white shadow-[8px_8px_0_0_#000] p-6;
+  }
+
+  .nb-card-tight {
+    @apply border-2 border-black bg-white shadow-[6px_6px_0_0_#000] p-4;
+  }
+
+  .nb-label {
+    @apply text-xs font-bold uppercase tracking-wider text-black;
+  }
+
+  .nb-input {
+    @apply w-full border-2 border-black bg-white px-3 py-2 text-sm text-black placeholder:text-neutral-500 focus:outline-none;
+  }
+
+  .nb-select {
+    @apply w-full border-2 border-black bg-white px-3 py-2 text-sm text-black focus:outline-none;
+  }
+
+  .nb-button {
+    @apply w-full border-2 border-black bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-[6px_6px_0_0_#000] transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-[4px_4px_0_0_#000];
+  }
+
+  .nb-pill {
+    @apply inline-flex items-center gap-1.5 border-2 border-black bg-white px-2 py-1 text-xs font-bold;
+  }
+}
